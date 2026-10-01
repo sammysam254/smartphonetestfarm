@@ -960,8 +960,8 @@ function DevicePage({ device, token, onBack, onRelease }) {
   }
 
   const screenStyle = isLandscape
-    ? { width: '100%', maxWidth: '880px', height: '62vh', maxHeight: '640px', aspectRatio: currentAspectRatio }
-    : { height: '82vh', maxHeight: '880px', aspectRatio: currentAspectRatio };
+    ? { width: '100%', maxWidth: '880px', height: 'min(62vh, 600px)', aspectRatio: currentAspectRatio }
+    : { height: 'min(76vh, 760px)', width: 'auto', maxWidth: '100%', aspectRatio: currentAspectRatio };
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -1137,7 +1137,7 @@ function DevicePage({ device, token, onBack, onRelease }) {
                 style={{
                   width: '100%',
                   height: '100%',
-                  cursor: 'crosshair',
+                  cursor: 'default',
                   touchAction: 'none',
                   userSelect: 'none',
                 }}

@@ -219,18 +219,22 @@
 .phone-mockup-centered {
   background: #090a0f;
   border: 4px solid #1e2230;
-  border-radius: 42px;
-  padding: 10px;
-  box-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.8), 0 0 40px rgba(56, 189, 248, 0.08), inset 0 0 12px rgba(255, 255, 255, 0.08);
+  border-radius: 40px;
+  padding: 8px;
+  box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.8), 0 0 35px rgba(56, 189, 248, 0.08), inset 0 0 12px rgba(255, 255, 255, 0.08);
   position: relative;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  max-height: calc(100vh - 120px);
+  max-width: calc(100vw - 120px);
 }
 
 .phone-mockup-centered.landscape {
   border-radius: 28px;
+  max-height: calc(100vh - 120px);
+  max-width: 90vw;
 }
 
 .phone-screen {
@@ -242,12 +246,14 @@
   align-items: center;
   justify-content: center;
   box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.8);
+  max-height: calc(100vh - 140px);
+  max-width: 100%;
 }
 
 .phone-video {
   width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: contain;
   display: block;
 }
 
@@ -1009,63 +1015,96 @@
 
 @media (max-width: 768px) {
   .device-page {
-    height: calc(100vh - 56px);
-    overflow-y: auto;
+    height: calc(100vh - 54px);
+    overflow: hidden;
   }
   .stream-window-bar {
-    padding: 6px 12px;
-    gap: 8px;
-    flex-wrap: wrap;
+    padding: 6px 10px;
+    gap: 6px;
+    flex-wrap: nowrap;
   }
   .stream-bar-left {
-    gap: 8px;
+    gap: 6px;
   }
   .stream-title-text {
     font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
   }
   .stream-model-sub {
     display: none;
   }
+  .zoom-control-pill {
+    padding: 2px 6px;
+    gap: 4px;
+  }
+  .zoom-btn {
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
+  }
+  .zoom-value {
+    font-size: 11px;
+    min-width: 32px;
+  }
   .stream-centered-container {
-    padding: 8px;
-    flex-direction: column;
+    padding: 4px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    overflow: hidden;
   }
   .phone-dock-assembly {
-    flex-direction: column;
-    gap: 12px;
+    flex-direction: row;
+    gap: 6px;
     width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
   }
   .phone-mockup-centered {
     border-width: 2px;
-    border-radius: 24px;
-    padding: 6px;
-    max-width: 94vw;
-    max-height: 58vh;
+    border-radius: 20px;
+    padding: 4px;
+    max-width: calc(100vw - 56px);
+    max-height: calc(100vh - 110px);
+  }
+  .phone-screen {
+    border-radius: 16px;
+    max-height: calc(100vh - 120px);
   }
   .docked-controls-sidebar {
-    flex-direction: row;
-    width: auto;
-    max-width: 96vw;
-    overflow-x: auto;
-    border-radius: 24px;
-    padding: 6px 10px;
+    flex-direction: column;
+    width: 38px;
+    border-radius: 20px;
+    padding: 6px 2px;
     gap: 4px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+  }
+  .dock-btn {
+    width: 32px;
+    height: 32px;
+  }
+  .dock-btn svg {
+    width: 15px;
+    height: 15px;
   }
   .dock-separator {
-    width: 1px;
-    height: 24px;
-    margin: 0 4px;
+    width: 20px;
+    height: 1px;
+    margin: 2px 0;
   }
   .dock-vol-track {
-    width: 40px;
-    height: 6px;
-  }
-  .dock-vol-fill {
-    height: 100% !important;
+    width: 5px;
+    height: 30px;
   }
   .dock-volume-group {
-    flex-direction: row;
+    flex-direction: column;
   }
 }
 
