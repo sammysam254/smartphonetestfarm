@@ -221,14 +221,14 @@ try {
 
                 if ($adbCmd) {
                     $devOutput = & adb devices -l | Out-String
-                    $devLines = $devOutput.Split("`n") | Where-Object { $_ -match "\tdevice" }
+                    $devLines = $devOutput.Split("`n") | Where-Object { $_ -match "\bdevice\b" -and $_ -notmatch "List of devices" }
                     foreach ($dl in $devLines) {
                         $parts = $dl.Trim() -split "\s+"
-                        if ($parts.Length -gt 0) {
+                        if ($parts.Length -gt 0 -and $parts[0]) {
                             $ser = $parts[0]
                             Write-Host "     -> Device [$ser]:" -ForegroundColor White
-                            Write-Host "        Web Stream:   https://vertextstreams.netlify.app/device/$ser" -ForegroundColor Green
-                            Write-Host "        Tunnel API:   $tunnelUrl/api/v1/devices/$ser/ws" -ForegroundColor DarkGray
+                            Write-Host "        Live Web Stream:   https://vertextstreams.netlify.app/device/$ser" -ForegroundColor Green
+                            Write-Host "        Direct WebSocket:  wss://$($tunnelUrl.Replace('https://','').Replace('http://',''))/api/v1/devices/$ser/ws" -ForegroundColor DarkGray
                         }
                     }
                 }
