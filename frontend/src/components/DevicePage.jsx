@@ -901,6 +901,11 @@ function DevicePage({ device, token, onBack, onRelease }) {
             }
           }
 
+          if (decoder.decodeQueueSize > 2 && !hasIDR) {
+            // Drop lagging delta frame if browser queue is backed up; next keyframe will resync
+            return;
+          }
+
           const timestamp = Math.floor(performance.now() * 1000);
           const encodedChunk = new EncodedVideoChunk({
             type: hasIDR ? 'key' : 'delta',

@@ -35,7 +35,7 @@ adb:
 stream:
   type:         "mjpeg"
   quality:      80
-  max_fps:      15
+  max_fps:      30
   max_restarts: 3
 
 # On-device FlexPulse agent: installs assets/flexpulse-agent.apk, runs a

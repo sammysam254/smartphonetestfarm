@@ -154,7 +154,7 @@ func (m *Manager) StartCapture(ctx context.Context, serial string, port int) err
 
 	maxFPS := m.cfg.Stream.MaxFPS
 	if maxFPS <= 0 {
-		maxFPS = 15
+		maxFPS = 30
 	}
 
 	sCtx, cancel := context.WithCancel(context.Background())
@@ -197,8 +197,9 @@ func (m *Manager) StartCapture(ctx context.Context, serial string, port int) err
 		"send_stream_meta=false",
 		"send_frame_meta=true",
 		"video_codec=h264",
+		"video_bit_rate=2000000",
 		"video_codec_options=i-frame-interval=1",
-		"max_size=1080",
+		"max_size=960",
 		"max_fps="+strconv.Itoa(maxFPS),
 		"tunnel_forward=true",
 	)
