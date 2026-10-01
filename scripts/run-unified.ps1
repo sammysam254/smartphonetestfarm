@@ -92,9 +92,21 @@ if (-not (Test-Path $provExe)) {
     exit 1
 }
 
-# Launch Coordinator and Provider in current console window (no extra windows)
+# Launch Coordinator first in current console window
 $coordProc = Start-Process -FilePath $coordExe -WorkingDirectory $WorkspaceRoot -NoNewWindow -PassThru
-Start-Sleep -Seconds 1
+
+# Wait for Coordinator to establish database migrations and listen on gRPC :9000
+for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Seconds 1
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", 9000)
+        $tcp.Close()
+        break
+    } catch {}
+}
+
+# Launch Provider in current console window (connects immediately with zero backoff)
 $provProc = Start-Process -FilePath $provExe -ArgumentList "--config `"$provConfig`" --log-level info" -WorkingDirectory $WorkspaceRoot -NoNewWindow -PassThru
 
 $script:synced = $false
