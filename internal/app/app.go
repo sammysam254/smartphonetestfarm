@@ -262,13 +262,19 @@ func (a *App) onDeviceConnected(event domain.DeviceEvent) {
 		slog.Warn("supervisor: failed to start device supervisor", "serial", d.Serial, "err", err)
 	}
 
-	// Notify coordinator (best-effort).
+	// Notify coordinator with retry so devices register even if coordinator starts a few seconds later.
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Coordinator.CallTimeout)
-		defer cancel()
-		if err := a.coordinator.RegisterDevice(ctx, d); err != nil {
-			slog.Warn("coordinator: failed to register device", "serial", d.Serial, "err", err)
+		for attempt := 1; attempt <= 20; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Coordinator.CallTimeout)
+			err := a.coordinator.RegisterDevice(ctx, d)
+			cancel()
+			if err == nil {
+				slog.Info("coordinator: device registered successfully", "serial", d.Serial)
+				return
+			}
+			time.Sleep(2 * time.Second)
 		}
+		slog.Warn("coordinator: failed to register device after retries", "serial", d.Serial)
 	}()
 }
 

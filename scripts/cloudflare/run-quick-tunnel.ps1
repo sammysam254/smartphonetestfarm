@@ -65,13 +65,21 @@ while (-not $process.HasExited) {
             Write-Host "===================================================================" -ForegroundColor Green
             Write-Host "[*] Publishing active tunnel URL to Supabase and Coordinator..." -ForegroundColor Cyan
 
-            # 1. Update local coordinator
-            try {
-                $body = @{ url = $tunnelUrl } | ConvertTo-Json
-                $res = Invoke-RestMethod -Uri "http://localhost:9002/api/v1/system/tunnel-url" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 5 -ErrorAction SilentlyContinue
-                Write-Host " [*] Local Coordinator updated." -ForegroundColor Green
-            } catch {
-                Write-Host " [!] Coordinator not reachable on :9002 yet (it will sync when up)." -ForegroundColor Yellow
+            # 1. Update local coordinator (retries up to 6 times while it finishes starting)
+            $coordUpdated = $false
+            for ($attempt = 1; $attempt -le 6; $attempt++) {
+                try {
+                    $body = @{ url = $tunnelUrl } | ConvertTo-Json
+                    $res = Invoke-RestMethod -Uri "http://localhost:9002/api/v1/system/tunnel-url" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop
+                    Write-Host " [*] Local Coordinator updated and database synced with tunnel URL!" -ForegroundColor Green
+                    $coordUpdated = $true
+                    break
+                } catch {
+                    Start-Sleep -Seconds 1
+                }
+            }
+            if (-not $coordUpdated) {
+                Write-Host " [!] Coordinator will sync when it finishes startup." -ForegroundColor Yellow
             }
 
             # 2. Update Supabase REST table farm_config
