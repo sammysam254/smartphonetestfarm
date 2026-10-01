@@ -1,5 +1,7 @@
 # Build artefacts
-bin/
+bin/*
+!bin/flexpulse-coordinator.exe
+!bin/flexpulse-provider.exe
 coverage.out
 
 # Locally downloaded Windows toolchain (adb platform-tools)
