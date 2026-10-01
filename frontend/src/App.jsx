@@ -7,7 +7,7 @@ import DeviceDetailsTable from './components/DeviceDetailsTable';
 import SettingsPanel from './components/SettingsPanel';
 import Login from './components/Login';
 import { useDevicesWS } from './hooks/useDevicesWS';
-import { COORDINATOR_API, SUPABASE_ENABLED, updateCoordinatorApi } from './lib/config';
+import { COORDINATOR_API, SUPABASE_ENABLED, updateCoordinatorApi, getCoordinatorApi } from './lib/config';
 import { getSupabase, fetchLiveTunnelUrl } from './lib/supabase';
 import './App.css';
 
@@ -179,22 +179,36 @@ function App() {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
   };
 
-  // Fetch device list
+  // Fetch device list from Supabase, with coordinator fallback
   const fetchDevices = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/devices`);
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data = await res.json();
-      setDevices(data || []);
+      if (SUPABASE_ENABLED) {
+        const sb = getSupabase();
+        if (sb) {
+          const { data, error } = await sb
+            .from('devices')
+            .select('*')
+            .order('connected_at', { ascending: false });
+          if (!error && Array.isArray(data)) {
+            setDevices(data);
+            return;
+          }
+        }
+      }
+      const api = getCoordinatorApi() || COORDINATOR_API;
+      if (api) {
+        const res = await fetch(`${api}/api/v1/devices`);
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        const data = await res.json();
+        setDevices(data || []);
+      }
     } catch (err) {
-      showToast(`Failed to fetch devices: ${err.message}`, 'error');
+      console.warn('Failed to fetch devices:', err);
     } finally {
       setLoading(false);
     }
   };
-
-
 
   const showToast = (message, type = 'success') => {
     const id = Date.now();
@@ -206,8 +220,13 @@ function App() {
 
   const handleClaim = async (device) => {
     try {
-      showToast(`Claiming ${device.model}...`, 'success');
-      const res = await fetch(`${COORDINATOR_API}/api/v1/devices/${device.serial}/claim?user=dev-user`, {
+      showToast(`Claiming ${device.model || device.serial}...`, 'success');
+      const api = getCoordinatorApi() || COORDINATOR_API;
+      if (!api) {
+        showToast('Local farm streaming host is offline or tunnel connecting...', 'error');
+        return;
+      }
+      const res = await fetch(`${api}/api/v1/devices/${device.serial}/claim?user=dev-user`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -224,6 +243,12 @@ function App() {
               : d
           )
         );
+        if (SUPABASE_ENABLED) {
+          const sb = getSupabase();
+          if (sb) {
+            sb.from('devices').update({ status: 'claimed', stream_port: data.port }).eq('serial', device.serial).then();
+          }
+        }
         navigate(`/device/${device.serial}`);
         fetchDevices();
       }
@@ -243,25 +268,31 @@ function App() {
     }
   }, [currentPath, activeDevice?.status]);
 
-
   const handleRelease = async (serial) => {
     try {
       showToast(`Releasing device...`, 'success');
-      const res = await fetch(`${COORDINATOR_API}/api/v1/devices/${serial}/release`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || `HTTP error ${res.status}`);
-      }
-      const data = await res.json();
-      if (data.success) {
-        showToast('Device released!', 'success');
-        if (activeDevice && activeDevice.serial === serial) {
-          navigate('/');
+      const api = getCoordinatorApi() || COORDINATOR_API;
+      if (api) {
+        const res = await fetch(`${api}/api/v1/devices/${serial}/release`, {
+          method: 'POST',
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || `HTTP error ${res.status}`);
         }
-        fetchDevices();
+        await res.json();
       }
+      showToast('Device released!', 'success');
+      if (SUPABASE_ENABLED) {
+        const sb = getSupabase();
+        if (sb) {
+          sb.from('devices').update({ status: 'idle', stream_port: 0 }).eq('serial', serial).then();
+        }
+      }
+      if (activeDevice && activeDevice.serial === serial) {
+        navigate('/');
+      }
+      fetchDevices();
     } catch (err) {
       showToast(`Release failed: ${err.message}`, 'error');
     }
