@@ -1,5 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Camera, ChevronLeft, Circle, FileText, Power, RotateCw, Square, WandSparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  Camera,
+  ChevronLeft,
+  Circle,
+  FileText,
+  Power,
+  RotateCw,
+  Square,
+  WandSparkles,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  RefreshCw,
+  Compass,
+  Terminal,
+  FolderUp,
+  Folder,
+  Settings,
+  Globe,
+  Wifi,
+  Code,
+  MoreVertical,
+  X,
+  Volume2,
+  VolumeX,
+  Play,
+  Trash2,
+  Download,
+  Package,
+  Layers,
+  Sliders,
+  Smartphone
+} from 'lucide-react';
 import './DevicePage.css';
 import DashboardTab from './device-page/DashboardTab';
 import DeviceTabsHeader from './device-page/DeviceTabsHeader';
@@ -18,6 +51,11 @@ function DevicePage({ device, token, onBack, onRelease }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [touchIndicator, setTouchIndicator] = useState(null);
+  const [zoom, setZoom] = useState(1.0);
+  const [activeSideDrawer, setActiveSideDrawer] = useState(null);
+  const [volumeLevel, setVolumeLevel] = useState(70);
+  const [shellOutput, setShellOutput] = useState('');
+  const [shellExecuting, setShellExecuting] = useState(false);
   const autoRefreshTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -917,8 +955,57 @@ function DevicePage({ device, token, onBack, onRelease }) {
   }
 
   const screenStyle = isLandscape
-    ? { width: '100%', maxWidth: '820px', aspectRatio: currentAspectRatio }
-    : { height: '100%', maxHeight: 'min(680px, 78vh)', aspectRatio: currentAspectRatio };
+    ? { width: '100%', maxWidth: '880px', height: '62vh', maxHeight: '640px', aspectRatio: currentAspectRatio }
+    : { height: '82vh', maxHeight: '880px', aspectRatio: currentAspectRatio };
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  const handleRunShell = async () => {
+    if (!shellCmd.trim()) return;
+    const cmd = shellCmd.trim();
+    setShellExecuting(true);
+    setShellOutput(prev => prev + `\n$ ${cmd}\n`);
+    try {
+      const res = await execShell(cmd);
+      if (res && res.output) {
+        setShellOutput(prev => prev + res.output + '\n');
+      } else if (res && res.message) {
+        setShellOutput(prev => prev + res.message + '\n');
+      } else {
+        setShellOutput(prev => prev + '[Command executed successfully]\n');
+      }
+    } catch (e) {
+      setShellOutput(prev => prev + `Error: ${e.message}\n`);
+    } finally {
+      setShellExecuting(false);
+      setShellCmd('');
+    }
+  };
+
+  const handleOpenUrl = () => {
+    if (!navUrl.trim()) return;
+    let url = navUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+    execShell(`am start -a android.intent.action.VIEW -d "${url}"`);
+  };
+
+  const appShortcuts = [
+    { label: 'Settings', icon: Settings, color: '#94a3b8', command: 'am start -a android.settings.SETTINGS' },
+    { label: 'Chrome', icon: Globe, color: '#38bdf8', command: 'am start -n com.android.chrome/com.google.android.apps.chrome.Main' },
+    { label: 'WiFi', icon: Wifi, color: '#a78bfa', command: 'am start -a android.settings.WIFI_SETTINGS' },
+    { label: 'Language', icon: Globe, color: '#22c55e', command: 'am start -a android.settings.LOCALE_SETTINGS' },
+    { label: 'Manage Apps', icon: Package, color: '#fb923c', command: 'am start -a android.settings.MANAGE_APPLICATIONS_SETTINGS' },
+    { label: 'Developer', icon: Code, color: '#f87171', command: 'am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS' },
+    { label: 'Reboot Device', icon: Power, color: '#ef4444', command: 'am broadcast -a android.intent.action.REBOOT' },
+  ];
 
   if (device.model === 'Loading...') {
     return (
@@ -932,183 +1019,503 @@ function DevicePage({ device, token, onBack, onRelease }) {
 
   return (
     <div className="device-page">
+      {/* ── TOP WINDOW HEADER (matching Image 2) ── */}
+      <div className="stream-window-bar">
+        <div className="stream-bar-left">
+          <button className="stream-back-btn" onClick={onBack} title="Back to Devices">
+            <ChevronLeft size={16} /> Devices
+          </button>
+          <div className="stream-title-badge">
+            <span className="stream-title-text">Stream {device.serial}</span>
+            <span className="stream-model-sub">({device.manufacturer} {device.model})</span>
+          </div>
+        </div>
 
-      {/* ── LEFT: Screen area with side controls ──────────────────────────── */}
-      <div className="screen-column">
-        <div className="phone-stage">
-          {/* Vertical controls on the LEFT of the phone */}
-          <div className="side-controls side-controls-left">
-            <button className="side-btn" title="Rotate" onClick={() => setRotation(r => r === 0 ? 90 : 0)}>
-              <RotateCw size={20} />
-              <label>Rotate</label>
+        <div className="stream-bar-center">
+          {/* Zoom In / Zoom Out Controls */}
+          <div className="zoom-control-pill">
+            <button
+              className="zoom-btn"
+              onClick={() => setZoom(z => Math.max(0.5, +(z - 0.15).toFixed(2)))}
+              title="Zoom Out (-)"
+            >
+              -
             </button>
-            <button className="side-btn" title="Power / Wake" onClick={() => sendControlKey(224)}>
-              <Power size={20} />
-              <label>Wake</label>
+            <span
+              className="zoom-label-btn"
+              onClick={() => setZoom(1.0)}
+              title="Click to reset to 100%"
+            >
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              className="zoom-btn"
+              onClick={() => setZoom(z => Math.min(2.0, +(z + 0.15).toFixed(2)))}
+              title="Zoom In (+)"
+            >
+              +
+            </button>
+            <button
+              className="zoom-btn-fit"
+              onClick={() => setZoom(0.85)}
+              title="Fit to Window"
+            >
+              Fit
             </button>
           </div>
+        </div>
 
-          {/* Phone mockup */}
-          <div className="phone-container">
-            <div className={`phone-wrapper ${isLandscape ? 'landscape' : ''}`}>
-              <div className="phone-screen" style={screenStyle}>
-                {/* Error overlay */}
-                {errorMsg && (
-                  <div className="phone-placeholder error">
-                    <AlertTriangle size={28} />
-                    <div className="phone-placeholder-message">{errorMsg}</div>
-                  </div>
-                )}
-                {/* Loading overlay — sits on top of the video (position:absolute z-index:10)
-                    while no frame has been painted yet. NEVER use display:none on the video
-                    itself because toggling visibility breaks the MediaSource pipeline. */}
-                {!errorMsg && !isPlaying && (
-                  <div className="phone-placeholder">
-                    <span className="spinner"></span>
-                    <div style={{ marginTop: '14px', fontSize: '13px' }}>Connecting to live stream...</div>
-                  </div>
-                )}
-                <canvas
-                  ref={canvasRef}
-                  tabIndex={0}
-                  className="phone-video"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
-                  onWheel={handleWheel}
-                  onKeyDown={handleKeyDown}
-                  onContextMenu={handleContextMenu}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    cursor: 'crosshair',
-                    touchAction: 'none',
-                    userSelect: 'none',
-                  }}
-                />
-                {touchIndicator && (
-                  <div
-                    key={touchIndicator.id}
-                    className="touch-ripple"
-                    style={{
-                      left: `${touchIndicator.x}%`,
-                      top: `${touchIndicator.y}%`,
-                    }}
-                  />
-                )}
-                <div
-                  id="highlight-overlay"
-                  style={{
-                    display: 'none',
-                    position: 'absolute',
-                    border: '2px solid var(--accent)',
-                    backgroundColor: 'rgba(37, 99, 235, 0.3)',
-                    pointerEvents: 'none',
-                    zIndex: 20
-                  }}
-                ></div>
-              </div>
-            </div>
+        <div className="stream-bar-right">
+          <div className="live-fps-badge">
+            <span className="live-dot-pulse" />
+            LIVE 60 FPS
           </div>
-
-          {/* Vertical controls on the RIGHT of the phone (Android nav) */}
-          <div className="side-controls side-controls-right">
-            <button className="side-btn" title="Home" onClick={() => sendControlKey(3)}>
-              <Circle size={20} />
-              <label>Home</label>
-            </button>
-            <button className="side-btn" title="Back" onClick={() => sendControlKey(4)}>
-              <ChevronLeft size={20} />
-              <label>Back</label>
-            </button>
-            <button className="side-btn" title="Recents" onClick={() => sendControlKey(187)}>
-              <Square size={20} />
-              <label>Recent</label>
-            </button>
-          </div>
+          <button
+            className="stream-action-icon-btn"
+            onClick={() => { if (wsRef.current) wsRef.current.close(); }}
+            title="Reload Stream"
+          >
+            <RefreshCw size={15} />
+          </button>
+          <button
+            className="stream-action-icon-btn"
+            onClick={() => setRotation(r => r === 0 ? 90 : 0)}
+            title="Rotate Screen"
+          >
+            <RotateCw size={15} />
+          </button>
+          <button
+            className="stream-action-icon-btn"
+            onClick={toggleFullscreen}
+            title="Toggle Fullscreen"
+          >
+            <Maximize size={15} />
+          </button>
         </div>
       </div>
 
-      {/* ── RIGHT: Control & Overview Tabs ──────────────────────────── */}
-      <div className="details-column">
-        <DeviceTabsHeader
-          deviceModel={device.model}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          onBack={onBack}
-        />
+      {/* ── CENTERED STREAM VIEWPORT & DOCKED SIDE CONTROLS ── */}
+      <div className="stream-centered-container">
+        <div
+          className="phone-dock-assembly"
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
+        >
+          {/* Centered Phone Frame */}
+          <div className={`phone-mockup-centered ${isLandscape ? 'landscape' : ''}`}>
+            <div className="phone-screen" style={screenStyle}>
+              {errorMsg && (
+                <div className="phone-placeholder error">
+                  <AlertTriangle size={28} />
+                  <div className="phone-placeholder-message">{errorMsg}</div>
+                </div>
+              )}
+              {!errorMsg && !isPlaying && (
+                <div className="phone-placeholder">
+                  <span className="spinner"></span>
+                  <div style={{ marginTop: '14px', fontSize: '13px' }}>Connecting to live stream...</div>
+                </div>
+              )}
+              <canvas
+                ref={canvasRef}
+                tabIndex={0}
+                className="phone-video"
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onWheel={handleWheel}
+                onKeyDown={handleKeyDown}
+                onContextMenu={handleContextMenu}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  cursor: 'crosshair',
+                  touchAction: 'none',
+                  userSelect: 'none',
+                }}
+              />
+              {touchIndicator && (
+                <div
+                  key={touchIndicator.id}
+                  className="touch-ripple"
+                  style={{
+                    left: `${touchIndicator.x}%`,
+                    top: `${touchIndicator.y}%`,
+                  }}
+                />
+              )}
+              <div
+                id="highlight-overlay"
+                style={{
+                  display: 'none',
+                  position: 'absolute',
+                  border: '2px solid var(--accent)',
+                  backgroundColor: 'rgba(37, 99, 235, 0.3)',
+                  pointerEvents: 'none',
+                  zIndex: 20
+                }}
+              />
+            </div>
+          </div>
 
-        <div className="tab-content">
-          {activeTab === 'dashboard' && (
-            <DashboardTab
-              device={device}
-              cardOrder={cardOrder}
-              draggedCardIndex={draggedCardIndex}
-              onCardDragStart={handleCardDragStart}
-              onCardDragOver={handleCardDragOver}
-              onCardDragEnd={handleCardDragEnd}
-              uploadProgress={uploadProgress}
-              onDropzoneClick={handleDropzoneClick}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              navUrl={navUrl}
-              setNavUrl={setNavUrl}
-              execShell={execShell}
-              shellCmd={shellCmd}
-              setShellCmd={setShellCmd}
-              sendControlKey={sendControlKey}
-            />
-          )}
+          {/* Docked Vertical Side Controls Bar (matching Image 2) */}
+          <div className="docked-controls-sidebar">
+            <button
+              className={`dock-btn ${activeSideDrawer === 'more' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'more' ? null : 'more')}
+              title="Device Info & Options"
+            >
+              <MoreVertical size={18} />
+            </button>
+            <button
+              className="dock-btn power"
+              onClick={() => sendControlKey(26)}
+              title="Power / Sleep / Wake"
+            >
+              <Power size={18} />
+            </button>
+            <button
+              className="dock-btn"
+              onClick={() => setRotation(r => r === 0 ? 90 : 0)}
+              title="Rotate Screen"
+            >
+              <RotateCw size={18} />
+            </button>
 
-          {activeTab === 'automation' && (
-            <AutomationTab
-              device={device}
-              coordinatorApi={COORDINATOR_API}
-              deviceWsRef={wsRef}
-              onWSMessageRef={onWSMessageRef}
-              canvasClickHandlerRef={canvasClickHandlerRef}
-            />
-          )}
+            <div className="dock-separator" />
 
-          {activeTab === 'media' && (
-            <MediaTab
-              screenshot={screenshot}
-              recording={recording}
-              mediaFiles={mediaFiles}
-              takeScreenshot={takeScreenshot}
-              startRecording={startRecording}
-              stopRecording={stopRecording}
-              refreshMedia={refreshMedia}
-              downloadMedia={downloadMedia}
-              deleteMedia={deleteMedia}
-              copyPath={copyPath}
-            />
-          )}
+            <button className="dock-btn" onClick={() => sendControlKey(3)} title="Home">
+              <Circle size={18} />
+            </button>
+            <button className="dock-btn" onClick={() => sendControlKey(4)} title="Back">
+              <ChevronLeft size={20} />
+            </button>
+            <button className="dock-btn" onClick={() => sendControlKey(187)} title="Recents / App Switcher">
+              <Square size={17} />
+            </button>
 
-          {activeTab === 'logs' && (
-            <PlaceholderTab
-              icon={FileText}
-              title="Logs & PT"
-              description="View Logcat logs and PT parameters of the device."
-              colorClass="color-emerald"
-            />
-          )}
+            <div className="dock-separator" />
 
-          {activeTab === 'files' && (
-            <FilesTab device={device} onFolderClick={handleFolderClick} onBackClick={handleBackClick} />
-          )}
+            <button className="dock-btn" onClick={takeScreenshot} title="Capture Screenshot">
+              <Camera size={18} />
+            </button>
+            <button
+              className={`dock-btn ${activeSideDrawer === 'upload' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'upload' ? null : 'upload')}
+              title="Install APK & Upload Files"
+            >
+              <FolderUp size={18} />
+            </button>
+            <button
+              className={`dock-btn ${activeSideDrawer === 'shell' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'shell' ? null : 'shell')}
+              title="ADB Shell Terminal"
+            >
+              <Terminal size={18} />
+            </button>
+            <button
+              className={`dock-btn ${activeSideDrawer === 'nav' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'nav' ? null : 'nav')}
+              title="Open URL / Web Browser"
+            >
+              <Compass size={18} />
+            </button>
+            <button
+              className={`dock-btn ${activeSideDrawer === 'apps' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'apps' ? null : 'apps')}
+              title="Quick Apps & System Settings"
+            >
+              <Settings size={18} />
+            </button>
+            <button
+              className={`dock-btn ${activeSideDrawer === 'files' ? 'active' : ''}`}
+              onClick={() => setActiveSideDrawer(d => d === 'files' ? null : 'files')}
+              title="Device File Manager"
+            >
+              <Folder size={18} />
+            </button>
 
-          {activeTab === 'info' && (
-            <InfoTab device={device} streamPort={streamPort} onRelease={onRelease} />
-          )}
+            <div className="dock-separator" />
+
+            {/* Volume Control Group with Vertical Indicator (matching Image 2) */}
+            <div className="dock-volume-group">
+              <button
+                className="dock-vol-btn"
+                onClick={() => {
+                  sendControlKey(24);
+                  setVolumeLevel(v => Math.min(100, v + 10));
+                }}
+                title="Volume Up"
+              >
+                +
+              </button>
+              <div
+                className="dock-vol-track"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pct = Math.max(0, Math.min(100, Math.round((1 - (e.clientY - rect.top) / rect.height) * 100)));
+                  setVolumeLevel(pct);
+                  sendControlKey(pct > volumeLevel ? 24 : 25);
+                }}
+                title={`Volume: ${volumeLevel}%`}
+              >
+                <div className="dock-vol-fill" style={{ height: `${volumeLevel}%` }} />
+              </div>
+              <button
+                className="dock-vol-btn"
+                onClick={() => {
+                  sendControlKey(25);
+                  setVolumeLevel(v => Math.max(0, v - 10));
+                }}
+                title="Volume Down"
+              >
+                -
+              </button>
+            </div>
+          </div>
         </div>
+
+        {/* ── SLIDE-OUT DRAWER PANEL FOR DASHBOARD FUNCTIONS ── */}
+        {activeSideDrawer && (
+          <div className="slideout-drawer-panel">
+            <div className="drawer-header">
+              <div className="drawer-title">
+                {activeSideDrawer === 'upload' && <><FolderUp size={18} /> Install APK & Upload</>}
+                {activeSideDrawer === 'shell' && <><Terminal size={18} /> ADB Shell Console</>}
+                {activeSideDrawer === 'nav' && <><Compass size={18} /> Browser Navigation</>}
+                {activeSideDrawer === 'apps' && <><Settings size={18} /> Apps & System Controls</>}
+                {activeSideDrawer === 'files' && <><Folder size={18} /> File Explorer</>}
+                {activeSideDrawer === 'more' && <><MoreVertical size={18} /> Device Information</>}
+              </div>
+              <button
+                className="drawer-close-btn"
+                onClick={() => setActiveSideDrawer(null)}
+                title="Close Drawer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="drawer-body">
+              {/* Upload Drawer */}
+              {activeSideDrawer === 'upload' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    Install Android packages (.apk) or push files directly to storage.
+                  </div>
+                  {uploadProgress.active ? (
+                    <div style={{ padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>
+                        <span>{uploadProgress.message}</span>
+                        <span>{uploadProgress.percent}%</span>
+                      </div>
+                      <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${uploadProgress.percent}%`, background: '#3b82f6', transition: 'width 0.2s' }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="dropzone"
+                        onClick={() => handleDropzoneClick('app')}
+                        onDrop={(e) => handleDrop(e, 'app')}
+                        onDragOver={handleDragOver}
+                        style={{ padding: '24px 16px', border: '2px dashed rgba(59, 130, 246, 0.4)', borderRadius: '16px', background: 'rgba(59, 130, 246, 0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#e2e8f0' }}
+                      >
+                        <FolderUp size={28} color="#3b82f6" />
+                        <span style={{ fontWeight: 600, fontSize: '13px' }}>Click or drop APK to install</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>Supports .apk files</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="dropzone"
+                        onClick={() => handleDropzoneClick('file')}
+                        onDrop={(e) => handleDrop(e, 'file')}
+                        onDragOver={handleDragOver}
+                        style={{ padding: '24px 16px', border: '2px dashed rgba(34, 197, 94, 0.4)', borderRadius: '16px', background: 'rgba(34, 197, 94, 0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#e2e8f0' }}
+                      >
+                        <Folder size={28} color="#22c55e" />
+                        <span style={{ fontWeight: 600, fontSize: '13px' }}>Click or drop file to push</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>Pushes to /sdcard/Download</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Shell Drawer */}
+              {activeSideDrawer === 'shell' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="e.g. pm list packages -3"
+                      value={shellCmd}
+                      onChange={(e) => setShellCmd(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRunShell()}
+                      style={{ flex: 1, padding: '10px 14px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px', color: '#fff', fontFamily: 'monospace', fontSize: '13px' }}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleRunShell}
+                      disabled={shellExecuting}
+                      style={{ padding: '0 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Play size={14} /> Run
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {['ls -la /sdcard', 'pm list packages -3', 'dumpsys battery', 'ip addr', 'top -n 1'].map(cmd => (
+                      <button
+                        key={cmd}
+                        onClick={() => { setShellCmd(cmd); }}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', fontFamily: 'monospace' }}
+                      >
+                        {cmd}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Terminal Output</span>
+                    <button
+                      onClick={() => setShellOutput('')}
+                      style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <pre style={{ height: '320px', background: '#05070d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', overflow: 'auto', color: '#4ade80', fontSize: '12px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {shellOutput || '# Terminal ready. Enter a shell command above.\n'}
+                  </pre>
+                </div>
+              )}
+
+              {/* Navigation Drawer */}
+              {activeSideDrawer === 'nav' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    Launch any web address in the device's default browser or Chrome.
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="https://example.com"
+                      value={navUrl}
+                      onChange={(e) => setNavUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleOpenUrl()}
+                      style={{ flex: 1, padding: '10px 14px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px', color: '#fff', fontSize: '13px' }}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleOpenUrl}
+                      style={{ padding: '0 16px' }}
+                    >
+                      Open
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                    <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Quick Bookmarks</span>
+                    {['https://google.com', 'https://youtube.com', 'https://fast.com', 'https://github.com'].map(url => (
+                      <button
+                        key={url}
+                        onClick={() => { setNavUrl(url); execShell(`am start -a android.intent.action.VIEW -d "${url}"`); }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', color: '#cbd5e1', fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <span>{url.replace('https://', '')}</span>
+                        <ChevronLeft size={16} style={{ transform: 'rotate(180deg)', opacity: 0.6 }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Apps & System Drawer */}
+              {activeSideDrawer === 'apps' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    One-click launch system screens and diagnostic utilities.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    {appShortcuts.map(app => {
+                      const Icon = app.icon;
+                      return (
+                        <button
+                          key={app.label}
+                          onClick={() => execShell(app.command)}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', color: '#e2e8f0', cursor: 'pointer', transition: 'all 0.2s' }}
+                        >
+                          <Icon size={24} color={app.color} />
+                          <span style={{ fontSize: '12px', fontWeight: 600 }}>{app.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Files Drawer */}
+              {activeSideDrawer === 'files' && (
+                <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                  <FilesTab device={device} onFolderClick={handleFolderClick} onBackClick={handleBackClick} />
+                </div>
+              )}
+
+              {/* Info & More Drawer */}
+              {activeSideDrawer === 'more' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Manufacturer</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{device.manufacturer || 'Android'}</div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Model</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{device.model}</div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Android Version</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>Android {device.os_version || '14'}</div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Battery</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e' }}>{device.battery || 100}%</div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Stream Port</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#38bdf8' }}>{streamPort || 'Direct'}</div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>IP Address</div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{device.ip || '127.0.0.1'}</div>
+                    </div>
+                  </div>
+
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => onRelease(device.serial)}
+                    style={{ marginTop: '16px', padding: '12px', width: '100%', borderRadius: '12px', fontWeight: 600 }}
+                  >
+                    Release Device Session
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default DevicePage;
+
