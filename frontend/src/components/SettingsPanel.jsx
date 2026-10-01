@@ -18,7 +18,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import './SettingsPanel.css';
-import { COORDINATOR_API } from '../lib/config';
+import { getCoordinatorApi } from '../lib/config';
 
 function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, currentUser }) {
   const [activeSubTab, setActiveSubTab] = useState('users');
@@ -51,18 +51,37 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const [allocateUserId, setAllocateUserId] = useState('');
   const [allocateSerial, setAllocateSerial] = useState('');
 
+  // Robust API Fetcher that handles offline coordinator and HTML responses gracefully
+  const apiFetch = async (endpoint, options = {}) => {
+    const base = getCoordinatorApi();
+    if (!base) {
+      throw new Error('Local farm coordinator is offline. Please launch start.bat on your PC.');
+    }
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    };
+    const res = await fetch(`${base}${endpoint}`, { ...options, headers });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      if (contentType.includes('text/html')) {
+        throw new Error('Local farm coordinator is offline. Launch start.bat on your PC to stream.');
+      }
+      const txt = await res.text();
+      throw new Error(txt || `HTTP error ${res.status}`);
+    }
+    return res.json();
+  };
+
   // Fetch all users
   const fetchUsers = async () => {
+    if (!getCoordinatorApi()) return;
     setLoadingUsers(true);
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/users`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data = await res.json();
+      const data = await apiFetch('/api/v1/admin/users');
       setUsers(data || []);
     } catch (err) {
-      showToast(`Failed to load users: ${err.message}`, 'error');
+      showToast(err.message, 'error');
     } finally {
       setLoadingUsers(false);
     }
@@ -70,13 +89,10 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
 
   // Fetch all groups
   const fetchGroups = async () => {
+    if (!getCoordinatorApi()) return;
     setLoadingGroups(true);
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data = await res.json();
+      const data = await apiFetch('/api/v1/admin/groups');
       setGroups(data || []);
       if (data && data.length > 0) {
         if (!selectedGroupId) {
@@ -88,7 +104,7 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
         }
       }
     } catch (err) {
-      showToast(`Failed to load groups: ${err.message}`, 'error');
+      showToast(err.message, 'error');
     } finally {
       setLoadingGroups(false);
     }
@@ -96,23 +112,15 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
 
   // Fetch group specific users and devices
   const fetchGroupAllocations = async (groupId) => {
-    if (!groupId) return;
+    if (!groupId || !getCoordinatorApi()) return;
     setLoadingAllocations(true);
     try {
-      const usersRes = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${groupId}/users`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const uData = usersRes.ok ? await usersRes.json() : [];
-
-      const devicesRes = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${groupId}/devices`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const dData = devicesRes.ok ? await devicesRes.json() : [];
-
+      const uData = await apiFetch(`/api/v1/admin/groups/${groupId}/users`);
+      const dData = await apiFetch(`/api/v1/admin/groups/${groupId}/devices`);
       setGroupUsers(uData || []);
       setGroupDeviceSerials(dData || []);
     } catch (err) {
-      showToast(`Failed to load allocations: ${err.message}`, 'error');
+      showToast(err.message, 'error');
     } finally {
       setLoadingAllocations(false);
     }
@@ -136,18 +144,26 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     }
   }, [selectedGroupId, activeSubTab]);
 
+  // Auto-reload when coordinator tunnel URL connects or changes
+  useEffect(() => {
+    const handleApiUpdate = () => {
+      fetchUsers();
+      fetchGroups();
+      if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
+    };
+    window.addEventListener('coordinator-api-updated', handleApiUpdate);
+    return () => window.removeEventListener('coordinator-api-updated', handleApiUpdate);
+  }, [selectedGroupId]);
+
   // Create User Handler
   const handleCreateUser = async (e) => {
     e.preventDefault();
     if (!userEmail || !userPassword) return;
     setCreatingUser(true);
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/auth/register`, {
+      await apiFetch('/api/v1/auth/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: userEmail,
           password: userPassword,
@@ -155,10 +171,6 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
           groups: [userGroup]
         })
       });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || `HTTP error ${res.status}`);
-      }
       showToast('User registered successfully!', 'success');
       setUserEmail('');
       setUserPassword('');
@@ -176,11 +188,9 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleDeleteUser = async (userId, email) => {
     if (!window.confirm(`Are you sure you want to delete user: ${email}?`)) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/users?id=${userId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      await apiFetch(`/api/v1/admin/users?id=${userId}`, {
+        method: 'DELETE'
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('User deleted successfully', 'success');
       fetchUsers();
     } catch (err) {
@@ -203,15 +213,11 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
         payload.expires_at = new Date(groupExpiry).toISOString();
       }
 
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups`, {
+      await apiFetch('/api/v1/admin/groups', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('Group created successfully with assigned admin!', 'success');
       setGroupName('');
       setGroupDesc('');
@@ -230,11 +236,9 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleDeleteGroup = async (groupId, name) => {
     if (!window.confirm(`Are you sure you want to delete group: ${name}?`)) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${groupId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      await apiFetch(`/api/v1/admin/groups/${groupId}`, {
+        method: 'DELETE'
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('Group deleted successfully', 'success');
       fetchGroups();
     } catch (err) {
@@ -247,15 +251,11 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     e.preventDefault();
     if (!allocateUserId || !selectedGroupId) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/users`, {
+      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: allocateUserId })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('User added to group', 'success');
       setAllocateUserId('');
       fetchGroupAllocations(selectedGroupId);
@@ -268,11 +268,9 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleRemoveUserFromGroup = async (userId) => {
     if (!window.confirm('Remove user from group?')) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/users/${userId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users/${userId}`, {
+        method: 'DELETE'
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('User removed from group', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
@@ -285,15 +283,11 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     e.preventDefault();
     if (!allocateSerial || !selectedGroupId) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/devices`, {
+      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serial: allocateSerial })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('Device allocated to group', 'success');
       setAllocateSerial('');
       fetchGroupAllocations(selectedGroupId);
@@ -306,11 +300,9 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleRemoveDeviceFromGroup = async (serial) => {
     if (!window.confirm('Deallocate device from group?')) return;
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
+        method: 'DELETE'
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast('Device deallocated from group', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
@@ -321,15 +313,11 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   // Assign or Share Device with specific group user (Group Admin & Super Admin)
   const handleAssignDeviceToUser = async (serial, userId) => {
     try {
-      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
+      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId || null })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       showToast(userId ? 'Device assigned to selected group member' : 'Device shared with all group members', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
@@ -397,6 +385,19 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
           </div>
         </div>
       </div>
+
+      {!getCoordinatorApi() && (
+        <div className="offline-farm-banner">
+          <AlertCircle size={20} className="offline-icon" />
+          <div className="offline-text">
+            <strong>Local Streaming Farm is Offline</strong>
+            <p>
+              To manage live users, groups, and device streams from this dashboard, double-click <code>start.bat</code> on your PC. 
+              The Cloudflare Quick Tunnel will automatically synchronize with this dashboard. You can also click <strong>Tunnel</strong> in the top header to enter your tunnel URL manually.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 🚀 SUB-TAB SWITCHER */}
       <div className="settings-sub-navigation">

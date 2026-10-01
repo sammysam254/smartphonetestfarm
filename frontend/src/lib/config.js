@@ -11,11 +11,25 @@ const explicitApi = storedApi || import.meta.env.VITE_COORDINATOR_API;
 
 const isViteDev = import.meta.env.DEV === true;
 
-export let COORDINATOR_API =
-  explicitApi ||
-  (isViteDev
-    ? `${window.location.protocol}//${window.location.hostname}:9002`
-    : `${window.location.protocol}//${window.location.host}`);
+export function getCoordinatorApi() {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('coordinator_api');
+    if (stored && stored.trim()) return stored.trim().replace(/\/+$/, '');
+  }
+  if (import.meta.env.VITE_COORDINATOR_API) {
+    return import.meta.env.VITE_COORDINATOR_API.trim().replace(/\/+$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return `${window.location.protocol}//${window.location.hostname}:9002`;
+  }
+  // When running on Netlify / remote static host without a tunnel configured:
+  if (typeof window !== 'undefined' && (window.location.hostname.includes('netlify.app') || window.location.hostname.includes('vercel.app'))) {
+    return '';
+  }
+  return `${window.location.protocol}//${window.location.host}`;
+}
+
+export let COORDINATOR_API = getCoordinatorApi();
 
 export function updateCoordinatorApi(newUrl) {
   if (!newUrl) return;
@@ -40,8 +54,10 @@ export const SUPABASE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 // reverse-proxies these to the provider's per-device stream server, so remote
 // (tunnelled) browsers never need direct access to provider stream ports.
 // subpath: 'ws' | 'stream' | 'state' | 'upload'
-export const deviceApiUrl = (serial, subpath) =>
-  `${COORDINATOR_API}/api/v1/devices/${encodeURIComponent(serial)}/${subpath}`;
+export const deviceApiUrl = (serial, subpath) => {
+  const base = getCoordinatorApi() || window.location.origin;
+  return `${base}/api/v1/devices/${encodeURIComponent(serial)}/${subpath}`;
+};
 
 // WebSocket URL for the device video/control channel (same-origin friendly:
 // https → wss). The auth token rides along as a query param because
