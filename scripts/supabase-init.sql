@@ -137,7 +137,13 @@ VALUES ('tunnel_url', '')
 ON CONFLICT (key) DO NOTHING;
 
 -- Enable Realtime for farm_config so Netlify automatically gets new tunnel URLs
-ALTER PUBLICATION supabase_realtime ADD TABLE public.farm_config;
+DO $$
+BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.farm_config;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN others THEN NULL;
+END $$;
 
 -- ===================================================================
 -- Security & Permissions (Hardening)
