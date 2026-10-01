@@ -150,6 +150,13 @@ func (d *DB) migrate() error {
 		`INSERT INTO groups (id, name, description, created_at) VALUES ('00000000-0000-0000-0000-000000000001', 'Public', 'Default public group', NOW()) ON CONFLICT (name) DO NOTHING;`,
 		`INSERT INTO device_groups (serial, group_id) SELECT serial, (SELECT id FROM groups WHERE name = 'Public') FROM devices ON CONFLICT DO NOTHING;`,
 		`INSERT INTO user_groups (user_id, group_id) SELECT u.id, g.id FROM users u CROSS JOIN groups g WHERE u.role = 'admin' ON CONFLICT DO NOTHING;`,
+		`CREATE TABLE IF NOT EXISTS farm_config (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		);`,
+		`INSERT INTO farm_config (key, value) VALUES ('tunnel_url', '') ON CONFLICT (key) DO NOTHING;`,
+		`GRANT SELECT ON TABLE farm_config TO anon, authenticated;`,
 	}
 
 	for _, q := range queries {
@@ -851,3 +858,20 @@ func (d *DB) GetGroupDevices(groupID string) ([]string, error) {
 	}
 	return list, nil
 }
+
+// SetFarmConfig updates or inserts a key-value pair in farm_config.
+func (d *DB) SetFarmConfig(key, value string) error {
+	query := `INSERT INTO farm_config (key, value, updated_at)
+	          VALUES ($1, $2, NOW())
+	          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	_, err := d.db.Exec(query, key, value)
+	return err
+}
+
+// GetFarmConfig retrieves a configuration value by key.
+func (d *DB) GetFarmConfig(key string) (string, error) {
+	var val string
+	err := d.db.QueryRow(`SELECT value FROM farm_config WHERE key = $1`, key).Scan(&val)
+	return val, err
+}
+

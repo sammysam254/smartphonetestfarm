@@ -5,7 +5,18 @@ export function useDevicesWS(token) {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [wsError, setWsError] = useState(null);
+  const [activeApi, setActiveApi] = useState(COORDINATOR_API);
   const wsRef = useRef(null);
+
+  useEffect(() => {
+    const handleApiUpdate = (e) => {
+      if (e.detail && e.detail !== activeApi) {
+        setActiveApi(e.detail);
+      }
+    };
+    window.addEventListener('coordinator-api-updated', handleApiUpdate);
+    return () => window.removeEventListener('coordinator-api-updated', handleApiUpdate);
+  }, [activeApi]);
 
   useEffect(() => {
     if (!token) {
@@ -17,7 +28,13 @@ export function useDevicesWS(token) {
     let reconnectTimer;
 
     const connectWS = () => {
-      const wsUrl = new URL(COORDINATOR_API);
+      let wsUrl;
+      try {
+        wsUrl = new URL(activeApi || COORDINATOR_API);
+      } catch (err) {
+        console.error('Invalid coordinator API URL for WS:', err);
+        return;
+      }
       wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
       wsUrl.pathname = '/api/v1/devices/ws';
       if (token) {
@@ -104,7 +121,7 @@ export function useDevicesWS(token) {
         wsRef.current.close();
       }
     };
-  }, [token]);
+  }, [token, activeApi]);
 
   return { devices, loading, wsError, setDevices };
 }

@@ -7,8 +7,8 @@ import DeviceDetailsTable from './components/DeviceDetailsTable';
 import SettingsPanel from './components/SettingsPanel';
 import Login from './components/Login';
 import { useDevicesWS } from './hooks/useDevicesWS';
-import { COORDINATOR_API, SUPABASE_ENABLED } from './lib/config';
-import { getSupabase } from './lib/supabase';
+import { COORDINATOR_API, SUPABASE_ENABLED, updateCoordinatorApi } from './lib/config';
+import { getSupabase, fetchLiveTunnelUrl } from './lib/supabase';
 import './App.css';
 
 function App() {
@@ -89,6 +89,42 @@ function App() {
       subscription?.unsubscribe();
     };
   }, []);
+
+  // Dynamically synchronize live tunnel URL published by the local host to Supabase
+  useEffect(() => {
+    if (!SUPABASE_ENABLED) return;
+
+    // 1. Initial query from Supabase farm_config
+    fetchLiveTunnelUrl().then((liveUrl) => {
+      if (liveUrl && liveUrl !== COORDINATOR_API) {
+        updateCoordinatorApi(liveUrl);
+        window.dispatchEvent(new CustomEvent('coordinator-api-updated', { detail: liveUrl }));
+      }
+    });
+
+    // 2. Realtime subscription: if the local tunnel restarts and assigns a new URL,
+    // notify the browser and switch streams without requiring manual configuration!
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const channel = sb
+      .channel('tunnel_live_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'farm_config' }, (payload) => {
+        if (payload?.new?.key === 'tunnel_url' && payload?.new?.value) {
+          const newUrl = payload.new.value.trim().replace(/\/+$/, '');
+          if (newUrl && newUrl !== COORDINATOR_API) {
+            updateCoordinatorApi(newUrl);
+            window.dispatchEvent(new CustomEvent('coordinator-api-updated', { detail: newUrl }));
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, []);
+
 
 
 

@@ -67,7 +67,23 @@ if (-not (Test-Path $scrcpy)) {
 }
 Write-Host ("scrcpy-server.jar: {0:N0} bytes" -f (Get-Item $scrcpy).Length)
 
-# -- 4. Build backend binaries -----
+# -- 4. Git & Cloudflared CLI tools -----
+Write-Step "Checking Git and cloudflared"
+$git = Get-Command git -ErrorAction SilentlyContinue
+if (-not $git) {
+    Write-Host "Git not found - installing with winget (Git.Git)..."
+    winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements
+    $gitPath = "C:\Program Files\Git\cmd"
+    if (Test-Path $gitPath) { $env:PATH = "$gitPath;$env:PATH" }
+}
+
+$cflared = Get-Command cloudflared -ErrorAction SilentlyContinue
+if (-not $cflared) {
+    Write-Host "cloudflared not found - installing with winget (Cloudflare.cloudflared)..."
+    winget install --id Cloudflare.cloudflared --silent --accept-package-agreements --accept-source-agreements
+}
+
+# -- 5. Build backend binaries -----
 Write-Step "Building flexpulse-coordinator.exe and flexpulse-provider.exe"
 New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
 & go build -buildvcs=false -ldflags "-s -w" -o "$root\bin\flexpulse-coordinator.exe" ".\cmd\coordinator"
@@ -76,10 +92,22 @@ if ($LASTEXITCODE -ne 0) { throw "coordinator build failed" }
 if ($LASTEXITCODE -ne 0) { throw "provider build failed" }
 Write-Host "Built bin\flexpulse-coordinator.exe and bin\flexpulse-provider.exe"
 
-# -- 5. Frontend build -----
-Write-Step "Building frontend (frontend\dist)"
+# -- 6. Node.js toolchain & Frontend build -----
+Write-Step "Checking Node.js & building frontend (frontend\dist)"
 $node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { throw "Node.js not found. Install Node 20+ from https://nodejs.org and re-run." }
+if (-not $node) {
+    $nodePath = "C:\Program Files\nodejs"
+    if (Test-Path "$nodePath\node.exe") {
+        $env:PATH = "$nodePath;$env:PATH"
+    } else {
+        Write-Host "Node.js not found - installing with winget (OpenJS.NodeJS.LTS)..."
+        winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+        if (Test-Path "$nodePath\node.exe") {
+            $env:PATH = "$nodePath;$env:PATH"
+        }
+    }
+}
+
 Push-Location "$root\frontend"
 try {
     if (-not (Test-Path "node_modules")) { npm install }
@@ -91,11 +119,8 @@ try {
 
 Write-Host @"
 
-Setup complete. Next steps:
+Setup complete. All dependencies installed and binaries compiled.
 
-  1. start.bat   (or scripts\windows\run-coordinator.ps1 + run-provider.ps1)
-  2. Plug in an Android device with USB debugging enabled.
-  3. Open http://localhost:9002 - or your Cloudflare Tunnel hostname.
-     See docs\16_windows_supabase_cloud.md for the full walkthrough.
+  Run start.bat to launch your farm!
 
 "@ -ForegroundColor Green

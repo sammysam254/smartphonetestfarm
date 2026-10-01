@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Radio } from 'lucide-react';
+import TunnelModal from './TunnelModal';
+import { getStoredCoordinatorApi } from '../lib/config';
 import './Header.css';
 
 const LogoIcon = () => (
@@ -31,6 +34,9 @@ const MoonIcon = () => (
 );
 
 function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange }) {
+  const [showTunnelModal, setShowTunnelModal] = useState(false);
+  const hasOverride = Boolean(getStoredCoordinatorApi());
+
   return (
     <header className="header">
       <div className="header-logo-container">
@@ -71,6 +77,15 @@ function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange 
       )}
 
       <div className="header-actions">
+        <button 
+          className={`tunnel-config-btn ${hasOverride ? 'has-override' : ''}`}
+          onClick={() => setShowTunnelModal(true)} 
+          title="Configure Local Stream Tunnel & API"
+        >
+          <Radio size={14} />
+          <span>Tunnel</span>
+        </button>
+
         {onLogout && (
           <button className="logout-btn" onClick={onLogout} aria-label="Log Out">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -86,6 +101,11 @@ function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange 
           <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
         </button>
       </div>
+
+      <TunnelModal 
+        isOpen={showTunnelModal} 
+        onClose={() => setShowTunnelModal(false)} 
+      />
     </header>
   );
 }

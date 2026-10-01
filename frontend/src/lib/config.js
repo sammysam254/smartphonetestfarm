@@ -6,21 +6,34 @@
 //   - Vite dev server (port 5173): fall back to the coordinator on port 9002.
 //   - VITE_COORDINATOR_API always wins if set.
 
-const explicitApi = import.meta.env.VITE_COORDINATOR_API;
+const storedApi = typeof window !== 'undefined' ? localStorage.getItem('coordinator_api') : null;
+const explicitApi = storedApi || import.meta.env.VITE_COORDINATOR_API;
 
 const isViteDev = import.meta.env.DEV === true;
 
-export const COORDINATOR_API =
+export let COORDINATOR_API =
   explicitApi ||
   (isViteDev
     ? `${window.location.protocol}//${window.location.hostname}:9002`
     : `${window.location.protocol}//${window.location.host}`);
 
-// Supabase Auth (optional). When both values are present the login screen
-// authenticates against Supabase and the app uses Supabase session JWTs;
-// otherwise it falls back to the coordinator's local password login.
-export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export function updateCoordinatorApi(newUrl) {
+  if (!newUrl) return;
+  const clean = newUrl.trim().replace(/\/+$/, '');
+  COORDINATOR_API = clean;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('coordinator_api', clean);
+  }
+}
+
+// Hardcoded Supabase Configuration
+export const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || 'https://sqnkpkzjnypxhhwvnfob.supabase.co';
+
+export const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxbmtwa3pqbnlweGhod3ZuZm9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NTIzNTMsImV4cCI6MjEwNjQyODM1M30.k_DvJGsYhL5cKk4UVjXp1UF5QPbEiK8h4Y0uvfONdww';
+
 export const SUPABASE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 // URL of a device stream endpoint on the coordinator. The coordinator
@@ -39,3 +52,17 @@ export const streamWSUrl = (serial, token) => {
   if (token) url.searchParams.set('token', token);
   return url.toString();
 };
+
+export function getStoredCoordinatorApi() {
+  return typeof window !== 'undefined' ? localStorage.getItem('coordinator_api') || '' : '';
+}
+
+export function setStoredCoordinatorApi(url) {
+  if (typeof window === 'undefined') return;
+  if (!url || !url.trim()) {
+    localStorage.removeItem('coordinator_api');
+  } else {
+    localStorage.setItem('coordinator_api', url.trim().replace(/\/+$/, ''));
+  }
+}
+

@@ -87,6 +87,7 @@ func (s *Server) Start() error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.HandleFunc("/api/v1/system/tunnel-url", s.handleTunnelURL)
 	mux.HandleFunc("/api/v1/automation/scripts", s.handleScripts)
 	mux.HandleFunc("/api/v1/automation/scripts/", s.handleScriptByID)
 	mux.HandleFunc("/api/v1/automation/run", s.handleRunScript)

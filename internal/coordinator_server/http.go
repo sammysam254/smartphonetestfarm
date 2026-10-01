@@ -742,3 +742,45 @@ func (s *Server) handleReportByID(w http.ResponseWriter, r *http.Request) {
 		"results":    json.RawMessage(resultsJSON),
 	})
 }
+
+// handleTunnelURL handles getting and setting the active public tunnel URL.
+func (s *Server) handleTunnelURL(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodGet {
+		val, err := s.db.GetFarmConfig("tunnel_url")
+		if err != nil {
+			val = ""
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": val})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		cleanURL := strings.TrimRight(strings.TrimSpace(req.URL), "/")
+		if err := s.db.SetFarmConfig("tunnel_url", cleanURL); err != nil {
+			slog.Error("failed to set tunnel_url in db", "err", err)
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		slog.Info("tunnel_url updated in database", "url", cleanURL)
+
+		// Broadcast to all connected clients
+		s.wsManager.Broadcast("TUNNEL_URL_CHANGED", map[string]string{"url": cleanURL})
+
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "url": cleanURL})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+

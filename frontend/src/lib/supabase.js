@@ -21,3 +21,23 @@ export function getSupabase() {
   }
   return client;
 }
+
+// Fetch active tunnel URL published by the local computer to Supabase farm_config
+export async function fetchLiveTunnelUrl() {
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb
+      .from('farm_config')
+      .select('value')
+      .eq('key', 'tunnel_url')
+      .maybeSingle();
+    if (!error && data?.value && data.value.trim()) {
+      return data.value.trim().replace(/\/+$/, '');
+    }
+  } catch (e) {
+    console.warn('Failed to fetch live tunnel url from Supabase:', e);
+  }
+  return null;
+}
+

@@ -31,7 +31,7 @@ func LoadConfig() Config {
 			port = p
 		}
 	}
-	dbURI := "postgres://postgres:123456@localhost:5455/flexpulse?sslmode=disable"
+	dbURI := "postgresql://postgres:6JWPgTz1VGmmNvco@db.sqnkpkzjnypxhhwvnfob.supabase.co:5432/postgres?sslmode=require"
 	if uri := os.Getenv("COORDINATOR_POSTGRES_URI"); uri != "" {
 		dbURI = uri
 	}
@@ -46,12 +46,12 @@ func LoadConfig() Config {
 		jwtIssuer = iss
 	}
 
-	oidcJWKS := ""
+	oidcJWKS := "https://sqnkpkzjnypxhhwvnfob.supabase.co/auth/v1/.well-known/jwks.json"
 	if jwks := os.Getenv("COORDINATOR_OIDC_JWKS_URL"); jwks != "" {
 		oidcJWKS = jwks
 	}
 
-	bypassDev := true
+	bypassDev := false
 	if bStr := os.Getenv("BYPASS_AUTH_IN_DEV"); bStr != "" {
 		if b, err := strconv.ParseBool(bStr); err == nil {
 			bypassDev = b

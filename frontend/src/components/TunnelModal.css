@@ -1,0 +1,267 @@
+.tunnel-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: tunnelFadeIn 0.2s ease-out;
+}
+
+@keyframes tunnelFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tunnel-modal {
+  background: var(--surface, #1e222b);
+  border: 1px solid var(--border, #2d3342);
+  border-radius: 14px;
+  width: 90%;
+  max-width: 520px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: tunnelSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tunnelSlideUp {
+  from { transform: scale(0.96) translateY(10px); }
+  to { transform: scale(1) translateY(0); }
+}
+
+.tunnel-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border, #2d3342);
+}
+
+.tunnel-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tunnel-title-icon {
+  color: var(--accent, #6366f1);
+  flex-shrink: 0;
+}
+
+.tunnel-modal-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #f3f4f6);
+}
+
+.tunnel-modal-title p {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  color: var(--text-muted, #9ca3af);
+}
+
+.tunnel-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.tunnel-modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text, #f3f4f6);
+}
+
+.tunnel-modal-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.tunnel-current-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border, #2d3342);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-muted, #9ca3af);
+  overflow-x: auto;
+}
+
+.tunnel-current-badge strong {
+  color: var(--text, #f3f4f6);
+  font-family: monospace;
+}
+
+.tunnel-override-pill {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.tunnel-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tunnel-input-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #f3f4f6);
+}
+
+.tunnel-helper-text {
+  font-size: 12px;
+  color: var(--text-muted, #9ca3af);
+  margin: 0 0 4px 0;
+}
+
+.tunnel-helper-text code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.tunnel-input-group input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border, #2d3342);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--text, #f3f4f6);
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.tunnel-input-group input:focus {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.tunnel-status-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  animation: tunnelFadeIn 0.2s ease;
+}
+
+.tunnel-status-alert.success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.tunnel-status-alert.error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.tunnel-info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-muted, #9ca3af);
+}
+
+.tunnel-info-box strong {
+  color: var(--text, #f3f4f6);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.tunnel-info-box p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.tunnel-modal-footer {
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border, #2d3342);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.tunnel-btn-secondary,
+.tunnel-btn-test,
+.tunnel-btn-primary {
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+
+.tunnel-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border, #2d3342);
+  color: var(--text-muted, #9ca3af);
+  margin-right: auto;
+}
+
+.tunnel-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text, #f3f4f6);
+}
+
+.tunnel-btn-test {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border, #2d3342);
+  color: var(--text, #f3f4f6);
+}
+
+.tunnel-btn-test:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tunnel-btn-primary {
+  background: var(--accent, #6366f1);
+  border: 1px solid transparent;
+  color: #fff;
+}
+
+.tunnel-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.tunnel-btn-test:disabled,
+.tunnel-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

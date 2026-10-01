@@ -95,6 +95,33 @@
   margin-left: auto;
 }
 
+.tunnel-config-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.tunnel-config-btn:hover {
+  background: var(--surface2);
+  color: var(--text);
+  border-color: var(--border-active);
+}
+
+.tunnel-config-btn.has-override {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .logout-btn {
   background: var(--surface);
   border: 1px solid var(--border);

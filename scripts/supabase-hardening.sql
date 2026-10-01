@@ -33,6 +33,9 @@ REVOKE ALL ON TABLE public.automation_reports FROM anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated;
 
+-- 4. Explicitly allow public reading and tunnel updating of farm_config table
+GRANT SELECT, INSERT, UPDATE ON TABLE public.farm_config TO anon, authenticated;
+
 -- 4. Verify: both queries should return zero rows.
 -- SELECT grantee, privilege_type FROM information_schema.role_table_grants
 --  WHERE table_schema = 'public' AND grantee IN ('anon', 'authenticated');
