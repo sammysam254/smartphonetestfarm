@@ -553,7 +553,7 @@ func (d *DB) CreateUser(u *domain.User) error {
 // GetUserByEmail retrieves the user by email.
 func (d *DB) GetUserByEmail(email string) (*domain.User, error) {
 	var u domain.User
-	query := `SELECT id, email, password_hash, role, auth_provider, created_at, updated_at FROM users WHERE email = $1`
+	query := `SELECT id, email, COALESCE(password_hash, ''), role, auth_provider, created_at, updated_at FROM users WHERE email = $1`
 	err := d.db.QueryRow(query, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.AuthProvider, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -564,7 +564,7 @@ func (d *DB) GetUserByEmail(email string) (*domain.User, error) {
 // GetUserByID retrieves the user by ID.
 func (d *DB) GetUserByID(id string) (*domain.User, error) {
 	var u domain.User
-	query := `SELECT id, email, password_hash, role, auth_provider, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email, COALESCE(password_hash, ''), role, auth_provider, created_at, updated_at FROM users WHERE id = $1`
 	err := d.db.QueryRow(query, id).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.AuthProvider, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
