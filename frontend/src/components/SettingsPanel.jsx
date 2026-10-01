@@ -20,7 +20,7 @@ import {
 import './SettingsPanel.css';
 import { COORDINATOR_API } from '../lib/config';
 
-function SettingsPanel({ token, devices: allDevices, showToast }) {
+function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, currentUser }) {
   const [activeSubTab, setActiveSubTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -39,6 +39,7 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
   // Form states - Create Group
   const [groupName, setGroupName] = useState('');
   const [groupDesc, setGroupDesc] = useState('');
+  const [groupAdminId, setGroupAdminId] = useState('');
   const [groupExpiry, setGroupExpiry] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
 
@@ -195,7 +196,8 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
     try {
       const payload = {
         name: groupName,
-        description: groupDesc
+        description: groupDesc,
+        admin_id: groupAdminId || null
       };
       if (groupExpiry) {
         payload.expires_at = new Date(groupExpiry).toISOString();
@@ -210,11 +212,13 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      showToast('Group created successfully!', 'success');
+      showToast('Group created successfully with assigned admin!', 'success');
       setGroupName('');
       setGroupDesc('');
+      setGroupAdminId('');
       setGroupExpiry('');
       fetchGroups();
+      fetchUsers();
     } catch (err) {
       showToast(`Group creation failed: ${err.message}`, 'error');
     } finally {
@@ -298,7 +302,7 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
     }
   };
 
-  // Remove Device from Group
+  // Remove Device from Group (Super Admin action)
   const handleRemoveDeviceFromGroup = async (serial) => {
     if (!window.confirm('Deallocate device from group?')) return;
     try {
@@ -311,6 +315,25 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
       showToast(`Failed to remove device: ${err.message}`, 'error');
+    }
+  };
+
+  // Assign or Share Device with specific group user (Group Admin & Super Admin)
+  const handleAssignDeviceToUser = async (serial, userId) => {
+    try {
+      const res = await fetch(`${COORDINATOR_API}/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: userId || null })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      showToast(userId ? 'Device assigned to selected group member' : 'Device shared with all group members', 'success');
+      fetchGroupAllocations(selectedGroupId);
+    } catch (err) {
+      showToast(`Failed to update assignment: ${err.message}`, 'error');
     }
   };
 
@@ -540,6 +563,7 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                       <tr>
                         <th>Group Name</th>
                         <th>Description</th>
+                        <th>Group Admin</th>
                         <th>Expiration Date</th>
                         <th>Status</th>
                         <th>Actions</th>
@@ -548,7 +572,7 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                     <tbody>
                       {groups.length === 0 ? (
                         <tr>
-                          <td colSpan="5" className="empty-table-state">
+                          <td colSpan="6" className="empty-table-state">
                             <Database size={24} />
                             <p>No logical access groups found.</p>
                           </td>
@@ -562,6 +586,11 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                                 <strong className="group-name-text">{g.name}</strong>
                               </td>
                               <td className="desc-col">{g.description || '—'}</td>
+                              <td>
+                                <span className="group-admin-badge">
+                                  {g.admin_email ? `👑 ${g.admin_email}` : (g.name === 'Public' ? 'Global' : 'Super Admin')}
+                                </span>
+                              </td>
                               <td>
                                 <span className="expiry-display">
                                   <Calendar size={13} className="cell-icon" />
@@ -618,6 +647,16 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                     placeholder="Logical scope definition"
                     rows="3"
                   />
+                </div>
+                <div className="settings-form-group">
+                  <label>Designated Group Admin</label>
+                  <select value={groupAdminId} onChange={(e) => setGroupAdminId(e.target.value)}>
+                    <option value="">None (Super Admin only)</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                    ))}
+                  </select>
+                  <small className="help-text">Assumes admin privileges only for this group and its devices</small>
                 </div>
                 <div className="settings-form-group">
                   <label>Access Expiration</label>
@@ -740,23 +779,47 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                           </div>
                         ) : (
                           <div className="alloc-list-inner">
-                            {groupDeviceSerials.map((serial) => {
+                            {groupDeviceSerials.map((item) => {
+                              const serial = typeof item === 'string' ? item : item.serial;
+                              const assignedUserId = typeof item === 'object' ? item.allocated_to_user_id : null;
                               const d = allDevices.find((dev) => dev.serial === serial);
                               return (
-                                <div key={serial} className="allocation-list-item">
+                                <div key={serial} className="allocation-list-item allocation-device-item">
                                   <div className="alloc-item-info">
                                     <Smartphone size={14} className="cell-icon" />
-                                    <span>{d ? `${d.manufacturer} ${d.model}` : 'Unknown'}</span>
-                                    <small className="serial-meta">{serial}</small>
+                                    <div className="alloc-device-text">
+                                      <span className="dev-name">{d ? `${d.manufacturer} ${d.model}` : 'Hardware Endpoint'}</span>
+                                      <small className="serial-meta">{serial}</small>
+                                    </div>
                                   </div>
-                                  <button
-                                    className="alloc-remove-btn"
-                                    onClick={() => handleRemoveDeviceFromGroup(serial)}
-                                    title="Deallocate device"
-                                  >
-                                    <UserMinus size={13} />
-                                    <span>Revoke</span>
-                                  </button>
+
+                                  {/* Direct Member Assignment Dropdown */}
+                                  <div className="alloc-member-assignment">
+                                    <select
+                                      value={assignedUserId || ''}
+                                      onChange={(e) => handleAssignDeviceToUser(serial, e.target.value)}
+                                      className="device-assign-dropdown"
+                                      title="Assign this device to a specific group member"
+                                    >
+                                      <option value="">👥 Shared (All Group Members)</option>
+                                      {groupUsers.map((u) => (
+                                        <option key={u.id} value={u.id}>
+                                          👤 Only: {u.email}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {isSuperAdmin && (
+                                    <button
+                                      className="alloc-remove-btn"
+                                      onClick={() => handleRemoveDeviceFromGroup(serial)}
+                                      title="Deallocate device from group"
+                                    >
+                                      <UserMinus size={13} />
+                                      <span>Revoke</span>
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
@@ -764,25 +827,32 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
                         )}
                       </div>
 
-                      <form onSubmit={handleAddDeviceToGroup} className="allocation-form">
-                        <select
-                          value={allocateSerial}
-                          onChange={(e) => setAllocateSerial(e.target.value)}
-                          required
-                        >
-                          <option value="">Select device to allocate...</option>
-                          {allDevices
-                            .filter((d) => !groupDeviceSerials.includes(d.serial))
-                            .map((d) => (
-                              <option key={d.serial} value={d.serial}>
-                                {d.manufacturer} {d.model} ({d.serial})
-                              </option>
-                            ))}
-                        </select>
-                        <button type="submit" className="add-btn">
-                          <span>Allocate</span>
-                        </button>
-                      </form>
+                      {isSuperAdmin ? (
+                        <form onSubmit={handleAddDeviceToGroup} className="allocation-form">
+                          <select
+                            value={allocateSerial}
+                            onChange={(e) => setAllocateSerial(e.target.value)}
+                            required
+                          >
+                            <option value="">Select device from fleet to allocate...</option>
+                            {allDevices
+                              .filter((d) => !groupDeviceSerials.some((item) => (typeof item === 'string' ? item : item.serial) === d.serial))
+                              .map((d) => (
+                                <option key={d.serial} value={d.serial}>
+                                  {d.manufacturer} {d.model} ({d.serial})
+                                </option>
+                              ))}
+                          </select>
+                          <button type="submit" className="add-btn">
+                            <span>Allocate to Group</span>
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="group-admin-notice">
+                          <ShieldAlert size={15} />
+                          <span>Hardware devices are allocated to groups by the Super Admin (sammyseth260@gmail.com). As Group Admin, you can assign the hardware devices above to specific group members.</span>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>

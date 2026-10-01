@@ -157,6 +157,8 @@ func (d *DB) migrate() error {
 		);`,
 		`INSERT INTO farm_config (key, value) VALUES ('tunnel_url', '') ON CONFLICT (key) DO NOTHING;`,
 		`GRANT SELECT ON TABLE farm_config TO anon, authenticated;`,
+		`ALTER TABLE groups ADD COLUMN IF NOT EXISTS admin_id UUID REFERENCES users(id) ON DELETE SET NULL;`,
+		`ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS allocated_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL;`,
 	}
 
 	for _, q := range queries {
@@ -601,9 +603,17 @@ func (d *DB) ListUsers() ([]domain.User, error) {
 // Group methods
 
 func (d *DB) CreateGroup(g *domain.Group) error {
-	query := `INSERT INTO groups (id, name, description, created_at, expires_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING`
-	if _, err := d.db.Exec(query, g.ID, g.Name, g.Description, g.CreatedAt, g.ExpiresAt); err != nil {
+	query := `INSERT INTO groups (id, name, description, admin_id, created_at, expires_at) 
+	          VALUES ($1, $2, $3, $4, $5, $6) 
+	          ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, admin_id = COALESCE(EXCLUDED.admin_id, groups.admin_id)`
+	if _, err := d.db.Exec(query, g.ID, g.Name, g.Description, g.AdminID, g.CreatedAt, g.ExpiresAt); err != nil {
 		return err
+	}
+
+	// If group admin is designated, add them to group and grant group_admin role
+	if g.AdminID != nil && *g.AdminID != "" {
+		_ = d.AddUserToGroup(*g.AdminID, g.ID)
+		_, _ = d.db.Exec(`UPDATE users SET role = 'group_admin' WHERE id = $1 AND role = 'user'`, *g.AdminID)
 	}
 
 	// Automatically add all admin users to the new group
@@ -615,20 +625,32 @@ func (d *DB) CreateGroup(g *domain.Group) error {
 	return nil
 }
 
-// GetGroup retrieves the group.
+// GetGroup retrieves the group with designated group admin info.
 func (d *DB) GetGroup(id string) (*domain.Group, error) {
 	var g domain.Group
-	query := `SELECT id, name, description, created_at, expires_at FROM groups WHERE id = $1`
-	err := d.db.QueryRow(query, id).Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt, &g.ExpiresAt)
+	var adminID sql.NullString
+	query := `
+		SELECT g.id, g.name, g.description, g.admin_id, COALESCE(u.email, ''), g.created_at, g.expires_at 
+		FROM groups g 
+		LEFT JOIN users u ON g.admin_id = u.id 
+		WHERE g.id = $1`
+	err := d.db.QueryRow(query, id).Scan(&g.ID, &g.Name, &g.Description, &adminID, &g.AdminEmail, &g.CreatedAt, &g.ExpiresAt)
 	if err != nil {
 		return nil, err
+	}
+	if adminID.Valid {
+		g.AdminID = &adminID.String
 	}
 	return &g, nil
 }
 
-// ListGroups lists the groups.
+// ListGroups lists the groups with admin info.
 func (d *DB) ListGroups() ([]domain.Group, error) {
-	rows, err := d.db.Query(`SELECT id, name, description, created_at, expires_at FROM groups ORDER BY name ASC`)
+	rows, err := d.db.Query(`
+		SELECT g.id, g.name, g.description, g.admin_id, COALESCE(u.email, ''), g.created_at, g.expires_at 
+		FROM groups g 
+		LEFT JOIN users u ON g.admin_id = u.id 
+		ORDER BY g.name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -637,8 +659,12 @@ func (d *DB) ListGroups() ([]domain.Group, error) {
 	var list []domain.Group
 	for rows.Next() {
 		var g domain.Group
-		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt, &g.ExpiresAt); err != nil {
+		var adminID sql.NullString
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &adminID, &g.AdminEmail, &g.CreatedAt, &g.ExpiresAt); err != nil {
 			return nil, err
+		}
+		if adminID.Valid {
+			g.AdminID = &adminID.String
 		}
 		list = append(list, g)
 	}
@@ -686,9 +712,17 @@ func (d *DB) RemoveUserFromGroup(userID, groupID string) error {
 }
 
 // AddDeviceToGroup performs the add device to group operation.
-func (d *DB) AddDeviceToGroup(serial, groupID string) error {
-	query := `INSERT INTO device_groups (serial, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-	_, err := d.db.Exec(query, serial, groupID)
+func (d *DB) AddDeviceToGroup(serial, groupID string, allocatedUserID *string) error {
+	query := `INSERT INTO device_groups (serial, group_id, allocated_to_user_id) VALUES ($1, $2, $3)
+		ON CONFLICT (serial, group_id) DO UPDATE SET allocated_to_user_id = COALESCE(EXCLUDED.allocated_to_user_id, device_groups.allocated_to_user_id)`
+	_, err := d.db.Exec(query, serial, groupID, allocatedUserID)
+	return err
+}
+
+// AssignDeviceToUser assigns or reallocates a device in a group to a specific user (or clears it if userID is nil).
+func (d *DB) AssignDeviceToUser(serial, groupID string, userID *string) error {
+	query := `UPDATE device_groups SET allocated_to_user_id = $1 WHERE serial = $2 AND group_id = $3`
+	_, err := d.db.Exec(query, userID, serial, groupID)
 	return err
 }
 
@@ -855,6 +889,42 @@ func (d *DB) GetGroupDevices(groupID string) ([]string, error) {
 	}
 	if list == nil {
 		list = []string{}
+	}
+	return list, nil
+}
+
+// GetGroupDevicesDetailed retrieves group devices along with individual user assignment details.
+func (d *DB) GetGroupDevicesDetailed(groupID string) ([]domain.GroupDeviceDetail, error) {
+	query := `
+		SELECT dg.serial, dg.allocated_to_user_id, u.email
+		FROM device_groups dg
+		LEFT JOIN users u ON dg.allocated_to_user_id = u.id
+		WHERE dg.group_id = $1
+		ORDER BY dg.serial ASC`
+	rows, err := d.db.Query(query, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.GroupDeviceDetail
+	for rows.Next() {
+		var item domain.GroupDeviceDetail
+		var allocID sql.NullString
+		var allocEmail sql.NullString
+		if err := rows.Scan(&item.Serial, &allocID, &allocEmail); err != nil {
+			return nil, err
+		}
+		if allocID.Valid {
+			item.AllocatedToUserID = &allocID.String
+		}
+		if allocEmail.Valid {
+			item.AllocatedUserEmail = &allocEmail.String
+		}
+		list = append(list, item)
+	}
+	if list == nil {
+		list = []domain.GroupDeviceDetail{}
 	}
 	return list, nil
 }

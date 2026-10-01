@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -150,11 +151,16 @@ func (s *AuthService) ResolveOIDCUser(sub, email string) (UserInfo, error) {
 			return UserInfo{}, err
 		}
 
-		// Auto-provision: first external user on an empty farm becomes admin.
+		// Super Admin: sammyseth260@gmail.com is ALWAYS granted RoleAdmin (Super Admin)
 		role := domain.RoleUser
-		var userCount int
-		if err := s.db.RawDB().QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount); err == nil && userCount == 0 {
+		if strings.EqualFold(email, "sammyseth260@gmail.com") {
 			role = domain.RoleAdmin
+		} else {
+			// Auto-provision: first external user on an empty farm becomes admin.
+			var userCount int
+			if err := s.db.RawDB().QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount); err == nil && userCount == 0 {
+				role = domain.RoleAdmin
+			}
 		}
 
 		user = &domain.User{
@@ -178,6 +184,12 @@ func (s *AuthService) ResolveOIDCUser(sub, email string) (UserInfo, error) {
 		if err := s.db.UpdateUserAuthProvider(user.ID, "supabase"); err != nil {
 			return UserInfo{}, err
 		}
+	}
+
+	// Always guarantee sammyseth260@gmail.com has RoleAdmin
+	if strings.EqualFold(user.Email, "sammyseth260@gmail.com") && user.Role != domain.RoleAdmin {
+		user.Role = domain.RoleAdmin
+		_ = s.db.UpdateUserRole(user.ID, domain.RoleAdmin)
 	}
 
 	// Non-admin external users still need the Public group to see devices.

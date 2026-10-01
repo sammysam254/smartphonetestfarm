@@ -100,8 +100,11 @@ func (s *Server) getDevicesList(userID string, isAdmin bool) ([]DeviceJSON, erro
 			FROM devices d
 			WHERE EXISTS (
 				SELECT 1 FROM device_groups dg
-				INNER JOIN user_groups ug ON dg.group_id = ug.group_id
-				WHERE dg.serial = d.serial AND ug.user_id = $1
+				INNER JOIN groups g ON dg.group_id = g.id
+				LEFT JOIN user_groups ug ON dg.group_id = ug.group_id
+				WHERE dg.serial = d.serial
+				  AND (g.admin_id::text = $1 OR ug.user_id::text = $1)
+				  AND (dg.allocated_to_user_id IS NULL OR dg.allocated_to_user_id::text = $1 OR g.admin_id::text = $1)
 			)
 			ORDER BY CASE d.status
 			    WHEN 'claimed' THEN 1

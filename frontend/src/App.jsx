@@ -30,7 +30,9 @@ function App() {
   };
 
   const decoded = token ? parseJwt(token) : null;
-  const isAdmin = decoded?.role === 'admin';
+  const isSuperAdmin = decoded?.email?.toLowerCase() === 'sammyseth260@gmail.com' || decoded?.role === 'admin';
+  const isGroupAdmin = decoded?.role === 'group_admin';
+  const isAdmin = isSuperAdmin || isGroupAdmin;
 
   useEffect(() => {
     const handlePopState = () => {
@@ -298,6 +300,8 @@ function App() {
             token={token}
             devices={devices}
             showToast={showToast}
+            isSuperAdmin={isSuperAdmin}
+            currentUser={decoded}
           />
         ) : (
           <>

@@ -30,6 +30,8 @@ type Group struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
+	AdminID     *string    `json:"admin_id,omitempty"`
+	AdminEmail  string     `json:"admin_email,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
@@ -41,4 +43,10 @@ type ApiKey struct {
 	TokenHash string     `json:"-"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type GroupDeviceDetail struct {
+	Serial             string  `json:"serial"`
+	AllocatedToUserID  *string `json:"allocated_to_user_id,omitempty"`
+	AllocatedUserEmail *string `json:"allocated_user_email,omitempty"`
 }

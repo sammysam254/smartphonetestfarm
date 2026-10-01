@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
     id UUID PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
     description TEXT,
+    admin_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     expires_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.user_groups (
 CREATE TABLE IF NOT EXISTS public.device_groups (
     serial TEXT NOT NULL REFERENCES public.devices(serial) ON DELETE CASCADE,
     group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+    allocated_to_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     PRIMARY KEY (serial, group_id)
 );
 

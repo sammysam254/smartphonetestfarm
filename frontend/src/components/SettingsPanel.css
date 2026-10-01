@@ -844,3 +844,84 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+.group-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.allocation-device-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.alloc-device-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.alloc-device-text .dev-name {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.alloc-member-assignment {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  max-width: 240px;
+}
+
+.device-assign-dropdown {
+  width: 100%;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 6px;
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 550;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.device-assign-dropdown:hover, .device-assign-dropdown:focus {
+  border-color: #6366f1;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.group-admin-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-top: 14px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.group-admin-notice svg {
+  color: #818cf8;
+  flex-shrink: 0;
+}
+

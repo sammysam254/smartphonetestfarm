@@ -1,14 +1,29 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Shield, Smartphone, Terminal } from 'lucide-react';
+import { 
+  Eye, 
+  EyeOff, 
+  ShieldCheck, 
+  Smartphone, 
+  Zap, 
+  Activity, 
+  Sparkles, 
+  UserCheck, 
+  ArrowRight,
+  CheckCircle2,
+  Lock
+} from 'lucide-react';
 import './Login.css';
 import { COORDINATOR_API, SUPABASE_ENABLED } from '../lib/config';
 import { getSupabase } from '../lib/supabase';
 
 function Login({ onLoginSuccess }) {
+  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -18,35 +33,72 @@ function Login({ onLoginSuccess }) {
       return;
     }
 
+    if (isSignUp && password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (isSignUp && password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
     setLoading(true);
     setError('');
+    setMessage('');
 
     try {
-      // Supabase Auth: sign in against the Supabase project; the returned
-      // session JWT is verified by the coordinator via the project's JWKS.
       if (SUPABASE_ENABLED) {
         const supabase = getSupabase();
-        const { data, error: sbError } = await supabase.auth.signInWithPassword({ email, password });
-        if (sbError) throw new Error(sbError.message);
-        const token = data?.session?.access_token;
-        if (!token) throw new Error('Supabase sign-in succeeded but no session token was returned');
-        localStorage.setItem('token', token);
-        onLoginSuccess(token);
-        return;
+
+        if (isSignUp) {
+          // Sign Up flow with Supabase Auth
+          const { data, error: sbError } = await supabase.auth.signUp({
+            email,
+            password,
+          });
+
+          if (sbError) throw new Error(sbError.message);
+
+          if (data?.session?.access_token) {
+            // Auto sign-in if email confirmation is disabled
+            localStorage.setItem('token', data.session.access_token);
+            onLoginSuccess(data.session.access_token);
+            return;
+          } else {
+            // Confirmation email sent
+            setMessage('Account created! Please check your email to verify your account or sign in below.');
+            setIsSignUp(false);
+            return;
+          }
+        } else {
+          // Sign In flow
+          const { data, error: sbError } = await supabase.auth.signInWithPassword({ 
+            email, 
+            password 
+          });
+
+          if (sbError) throw new Error(sbError.message);
+          const token = data?.session?.access_token;
+          if (!token) throw new Error('Sign-in succeeded but no session token was received');
+          
+          localStorage.setItem('token', token);
+          onLoginSuccess(token);
+          return;
+        }
       }
 
-      // Local fallback: coordinator-issued password login.
-      const res = await fetch(`${COORDINATOR_API}/api/v1/auth/login`, {
+      // Local coordinator fallback
+      const endpoint = isSignUp ? '/api/v1/auth/register' : '/api/v1/auth/login';
+      const res = await fetch(`${COORDINATOR_API}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || 'Invalid credentials');
+        throw new Error(text || 'Authentication failed');
       }
 
       const data = await res.json();
@@ -54,7 +106,8 @@ function Login({ onLoginSuccess }) {
         localStorage.setItem('token', data.token);
         onLoginSuccess(data.token);
       } else {
-        throw new Error('Authentication failed: No token received');
+        setMessage('Registration complete! Please sign in.');
+        setIsSignUp(false);
       }
     } catch (err) {
       setError(err.message || 'Connection to authentication service failed');
@@ -65,10 +118,13 @@ function Login({ onLoginSuccess }) {
 
   return (
     <div className="login-container">
-      {/* Left Brand Panel */}
+      {/* ── Left Brand Panel with Live Animations ── */}
       <div className="login-brand-panel">
-        <div className="brand-overlay"></div>
-        <div className="brand-grid-pattern"></div>
+        {/* Animated Ambient Light Orbs */}
+        <div className="ambient-orb orb-1"></div>
+        <div className="ambient-orb orb-2"></div>
+        <div className="ambient-orb orb-3"></div>
+
         <div className="brand-content">
           <div className="brand-header">
             <div className="brand-logo">
@@ -80,20 +136,79 @@ function Login({ onLoginSuccess }) {
               </svg>
               <span>FlexPulse</span>
             </div>
+            <span className="brand-badge-live">
+              <span className="live-dot-pulse"></span>
+              Ultra-Low Latency Farm
+            </span>
           </div>
-          
+
+          {/* Center Live Device Visual Animation */}
+          <div className="live-showcase-container">
+            <div className="floating-phone-card">
+              <div className="phone-notch"></div>
+              
+              {/* Phone Screen Mockup with Live Animation */}
+              <div className="phone-screen">
+                <div className="screen-header">
+                  <span className="screen-live-pill">
+                    <span className="screen-dot"></span> LIVE 60 FPS
+                  </span>
+                  <span className="screen-latency">⚡ 12ms</span>
+                </div>
+
+                {/* Animated Waveform Display */}
+                <div className="screen-visualizer">
+                  <div className="vis-bar bar-1"></div>
+                  <div className="vis-bar bar-2"></div>
+                  <div className="vis-bar bar-3"></div>
+                  <div className="vis-bar bar-4"></div>
+                  <div className="vis-bar bar-5"></div>
+                  <div className="vis-bar bar-6"></div>
+                  <div className="vis-bar bar-7"></div>
+                  <div className="vis-bar bar-8"></div>
+                </div>
+
+                {/* Interactive Touch Simulator Animation */}
+                <div className="touch-animation-ring"></div>
+                <div className="touch-animation-center"></div>
+
+                <div className="screen-footer">
+                  <Smartphone size={13} />
+                  <span>Hardware H.264 Stream Active</span>
+                </div>
+              </div>
+
+              {/* Floating Feature Tags */}
+              <div className="floating-tag tag-webrtc">
+                <Activity size={12} />
+                <span>WebCodecs 4K Native</span>
+              </div>
+              <div className="floating-tag tag-multitouch">
+                <Zap size={12} />
+                <span>Multi-Touch Zero Lag</span>
+              </div>
+            </div>
+          </div>
+
           <div className="brand-hero">
             <h1>Scale your mobile automation with <span className="highlight-brand">FlexPulse</span>.</h1>
-            <p>A high-performance smartphone farm built for low-latency interactive control and native device automation.</p>
+            <p>Connect physical Android & iOS smartphones over USB, tunnel low-latency streams globally, and assign dedicated devices to user groups.</p>
           </div>
 
           <div className="brand-footer">
+            <div className="brand-footer-features">
+              <span><ShieldCheck size={13} /> Supabase Auth</span>
+              <span>•</span>
+              <span><Zap size={13} /> Cloudflare Tunnel</span>
+              <span>•</span>
+              <span><UserCheck size={13} /> Group Tenancy</span>
+            </div>
             <span>© {new Date().getFullYear()} FlexPulse. All rights reserved.</span>
           </div>
         </div>
       </div>
 
-      {/* Right Form Panel */}
+      {/* ── Right Form Panel (Sign In & Sign Up) ── */}
       <div className="login-form-panel">
         <div className="login-form-wrapper">
           <div className="form-header">
@@ -105,8 +220,31 @@ function Login({ onLoginSuccess }) {
                 <rect x="14" y="14" width="6" height="6" rx="1.5" />
               </svg>
             </div>
-            <h2>Sign in to your account</h2>
-            <p>{SUPABASE_ENABLED ? 'Sign in with your Supabase account credentials' : 'Enter your corporate credentials below'}</p>
+            
+            {/* Mode Switcher Tabs */}
+            <div className="auth-tab-switcher">
+              <button 
+                type="button" 
+                className={`auth-tab ${!isSignUp ? 'active' : ''}`}
+                onClick={() => { setIsSignUp(false); setError(''); setMessage(''); }}
+              >
+                Sign In
+              </button>
+              <button 
+                type="button" 
+                className={`auth-tab ${isSignUp ? 'active' : ''}`}
+                onClick={() => { setIsSignUp(true); setError(''); setMessage(''); }}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            <h2>{isSignUp ? 'Create your account' : 'Sign in to your account'}</h2>
+            <p>
+              {isSignUp 
+                ? 'Register your email to access assigned mobile streams' 
+                : 'Enter your credentials to stream your connected devices'}
+            </p>
           </div>
 
           {error && (
@@ -122,6 +260,13 @@ function Login({ onLoginSuccess }) {
             </div>
           )}
 
+          {message && (
+            <div className="login-success-alert">
+              <CheckCircle2 size={18} />
+              <span>{message}</span>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="premium-form">
             <div className="premium-input-group">
               <label htmlFor="email">Work Email</label>
@@ -134,6 +279,11 @@ function Login({ onLoginSuccess }) {
                 disabled={loading}
                 required
               />
+              {email.toLowerCase() === 'sammyseth260@gmail.com' && (
+                <span className="super-admin-hint">
+                  👑 Super Admin Account
+                </span>
+              )}
             </div>
 
             <div className="premium-input-group">
@@ -162,17 +312,63 @@ function Login({ onLoginSuccess }) {
               </div>
             </div>
 
+            {isSignUp && (
+              <div className="premium-input-group">
+                <label htmlFor="confirmPassword">Confirm Password</label>
+                <div className="password-input-wrapper">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    id="confirmPassword"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
             <button type="submit" className="premium-submit-btn" disabled={loading}>
               {loading ? (
                 <>
                   <span className="spinner"></span>
-                  <span>Signing In...</span>
+                  <span>{isSignUp ? 'Creating Account...' : 'Signing In...'}</span>
                 </>
               ) : (
-                <span>Sign In</span>
+                <>
+                  <span>{isSignUp ? 'Create Account' : 'Sign In'}</span>
+                  <ArrowRight size={16} />
+                </>
               )}
             </button>
           </form>
+
+          <div className="form-toggle-footer">
+            {isSignUp ? (
+              <p>
+                Already have an account?{' '}
+                <button 
+                  type="button" 
+                  className="text-link-btn" 
+                  onClick={() => { setIsSignUp(false); setError(''); setMessage(''); }}
+                >
+                  Sign In
+                </button>
+              </p>
+            ) : (
+              <p>
+                Don't have an account yet?{' '}
+                <button 
+                  type="button" 
+                  className="text-link-btn" 
+                  onClick={() => { setIsSignUp(true); setError(''); setMessage(''); }}
+                >
+                  Create an account
+                </button>
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
