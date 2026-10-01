@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import './SettingsPanel.css';
 import { getCoordinatorApi } from '../lib/config';
+import { getSupabase } from '../lib/supabase';
 
 function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, currentUser }) {
   const [activeSubTab, setActiveSubTab] = useState('users');
@@ -51,11 +52,11 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const [allocateUserId, setAllocateUserId] = useState('');
   const [allocateSerial, setAllocateSerial] = useState('');
 
-  // Robust API Fetcher that handles offline coordinator and HTML responses gracefully
+  // Robust API Fetcher (fallback for local coordinator actions)
   const apiFetch = async (endpoint, options = {}) => {
     const base = getCoordinatorApi();
     if (!base) {
-      throw new Error('Local farm coordinator is offline. Please launch start.bat on your PC.');
+      throw new Error('Local farm coordinator is offline.');
     }
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -65,7 +66,7 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
       if (contentType.includes('text/html')) {
-        throw new Error('Local farm coordinator is offline. Launch start.bat on your PC to stream.');
+        throw new Error('Local farm coordinator is offline.');
       }
       const txt = await res.text();
       throw new Error(txt || `HTTP error ${res.status}`);
@@ -73,11 +74,21 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     return res.json();
   };
 
-  // Fetch all users
+  // Fetch all users directly from Supabase Cloud Directory
   const fetchUsers = async () => {
-    if (!getCoordinatorApi()) return;
     setLoadingUsers(true);
     try {
+      const sb = getSupabase();
+      if (sb) {
+        const { data, error } = await sb
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          setUsers(data);
+          return;
+        }
+      }
       const data = await apiFetch('/api/v1/admin/users');
       setUsers(data || []);
     } catch (err) {
@@ -87,20 +98,38 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     }
   };
 
-  // Fetch all groups
+  // Fetch all groups directly from Supabase Cloud
   const fetchGroups = async () => {
-    if (!getCoordinatorApi()) return;
     setLoadingGroups(true);
     try {
-      const data = await apiFetch('/api/v1/admin/groups');
-      setGroups(data || []);
-      if (data && data.length > 0) {
-        if (!selectedGroupId) {
-          setSelectedGroupId(data[0].id);
+      const sb = getSupabase();
+      let gData = null;
+      if (sb) {
+        const { data, error } = await sb
+          .from('groups')
+          .select('id, name, description, admin_id, expires_at, created_at')
+          .order('name', { ascending: true });
+        if (!error && data) {
+          gData = data;
         }
-        const hasPublic = data.some(g => g.name === 'Public');
+      }
+      if (!gData) {
+        gData = await apiFetch('/api/v1/admin/groups');
+      }
+
+      // If group admin (not super admin), filter to only groups they administer
+      if (!isSuperAdmin && currentUser?.sub) {
+        gData = (gData || []).filter(g => g.admin_id === currentUser.sub);
+      }
+
+      setGroups(gData || []);
+      if (gData && gData.length > 0) {
+        if (!selectedGroupId) {
+          setSelectedGroupId(gData[0].id);
+        }
+        const hasPublic = gData.some(g => g.name === 'Public');
         if (!hasPublic) {
-          setUserGroup(data[0].name);
+          setUserGroup(gData[0].name);
         }
       }
     } catch (err) {
@@ -110,15 +139,50 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     }
   };
 
-  // Fetch group specific users and devices
+  // Fetch group specific users and devices from Supabase Cloud
   const fetchGroupAllocations = async (groupId) => {
-    if (!groupId || !getCoordinatorApi()) return;
+    if (!groupId) return;
     setLoadingAllocations(true);
     try {
-      const uData = await apiFetch(`/api/v1/admin/groups/${groupId}/users`);
-      const dData = await apiFetch(`/api/v1/admin/groups/${groupId}/devices`);
-      setGroupUsers(uData || []);
-      setGroupDeviceSerials(dData || []);
+      const sb = getSupabase();
+      let uList = null;
+      let dList = null;
+
+      if (sb) {
+        // Fetch group mapped users
+        const { data: ug, error: ugErr } = await sb
+          .from('user_groups')
+          .select('user_id')
+          .eq('group_id', groupId);
+        if (!ugErr && ug) {
+          const userIds = ug.map(item => item.user_id);
+          if (userIds.length > 0) {
+            const { data: uRows } = await sb.from('users').select('*').in('id', userIds);
+            uList = uRows || [];
+          } else {
+            uList = [];
+          }
+        }
+
+        // Fetch group allocated devices
+        const { data: dg, error: dgErr } = await sb
+          .from('device_groups')
+          .select('serial, allocated_to_user_id')
+          .eq('group_id', groupId);
+        if (!dgErr && dg) {
+          dList = dg;
+        }
+      }
+
+      if (uList === null) {
+        uList = await apiFetch(`/api/v1/admin/groups/${groupId}/users`);
+      }
+      if (dList === null) {
+        dList = await apiFetch(`/api/v1/admin/groups/${groupId}/devices`);
+      }
+
+      setGroupUsers(uList || []);
+      setGroupDeviceSerials(dList || []);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -144,6 +208,31 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     }
   }, [selectedGroupId, activeSubTab]);
 
+  // Realtime Cloud Sync via Supabase
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const channel = sb.channel('admin_cloud_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
+        fetchUsers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'groups' }, () => {
+        fetchGroups();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'device_groups' }, () => {
+        if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_groups' }, () => {
+        if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
+      })
+      .subscribe();
+
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, [selectedGroupId]);
+
   // Auto-reload when coordinator tunnel URL connects or changes
   useEffect(() => {
     const handleApiUpdate = () => {
@@ -155,23 +244,53 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     return () => window.removeEventListener('coordinator-api-updated', handleApiUpdate);
   }, [selectedGroupId]);
 
-  // Create User Handler
+  // Create User Handler directly in Supabase Cloud
   const handleCreateUser = async (e) => {
     e.preventDefault();
     if (!userEmail || !userPassword) return;
     setCreatingUser(true);
     try {
-      await apiFetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userEmail,
-          password: userPassword,
-          role: userRole,
-          groups: [userGroup]
-        })
-      });
-      showToast('User registered successfully!', 'success');
+      const sb = getSupabase();
+      if (sb) {
+        const { data, error } = await sb.auth.signUp({
+          email: userEmail.trim(),
+          password: userPassword
+        });
+        if (error) throw error;
+        if (data?.user) {
+          const finalRole = userEmail.toLowerCase() === 'sammyseth260@gmail.com' ? 'admin' : userRole;
+          await sb.from('users').upsert({
+            id: data.user.id,
+            email: userEmail.trim(),
+            role: finalRole,
+            auth_provider: 'supabase',
+            updated_at: new Date().toISOString()
+          });
+
+          if (userGroup) {
+            const targetGroup = groups.find(g => g.name === userGroup);
+            if (targetGroup) {
+              await sb.from('user_groups').upsert({
+                user_id: data.user.id,
+                group_id: targetGroup.id
+              });
+            }
+          }
+        }
+      } else {
+        await apiFetch('/api/v1/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: userEmail,
+            password: userPassword,
+            role: userRole,
+            groups: [userGroup]
+          })
+        });
+      }
+
+      showToast('User created successfully in cloud directory!', 'success');
       setUserEmail('');
       setUserPassword('');
       setUserRole('user');
@@ -188,9 +307,15 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleDeleteUser = async (userId, email) => {
     if (!window.confirm(`Are you sure you want to delete user: ${email}?`)) return;
     try {
-      await apiFetch(`/api/v1/admin/users?id=${userId}`, {
-        method: 'DELETE'
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('users').delete().eq('id', userId);
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/users?id=${userId}`, {
+          method: 'DELETE'
+        });
+      }
       showToast('User deleted successfully', 'success');
       fetchUsers();
     } catch (err) {
@@ -205,19 +330,31 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     setCreatingGroup(true);
     try {
       const payload = {
-        name: groupName,
-        description: groupDesc,
-        admin_id: groupAdminId || null
+        id: crypto.randomUUID(),
+        name: groupName.trim(),
+        description: groupDesc.trim(),
+        admin_id: groupAdminId || null,
+        created_at: new Date().toISOString()
       };
       if (groupExpiry) {
         payload.expires_at = new Date(groupExpiry).toISOString();
       }
 
-      await apiFetch('/api/v1/admin/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('groups').insert(payload);
+        if (error) throw error;
+        if (payload.admin_id) {
+          await sb.from('users').update({ role: 'group_admin' }).eq('id', payload.admin_id).eq('role', 'user');
+        }
+      } else {
+        await apiFetch('/api/v1/admin/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
+
       showToast('Group created successfully with assigned admin!', 'success');
       setGroupName('');
       setGroupDesc('');
@@ -236,9 +373,15 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleDeleteGroup = async (groupId, name) => {
     if (!window.confirm(`Are you sure you want to delete group: ${name}?`)) return;
     try {
-      await apiFetch(`/api/v1/admin/groups/${groupId}`, {
-        method: 'DELETE'
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('groups').delete().eq('id', groupId);
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${groupId}`, {
+          method: 'DELETE'
+        });
+      }
       showToast('Group deleted successfully', 'success');
       fetchGroups();
     } catch (err) {
@@ -251,11 +394,17 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     e.preventDefault();
     if (!allocateUserId || !selectedGroupId) return;
     try {
-      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: allocateUserId })
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('user_groups').insert({ user_id: allocateUserId, group_id: selectedGroupId });
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: allocateUserId })
+        });
+      }
       showToast('User added to group', 'success');
       setAllocateUserId('');
       fetchGroupAllocations(selectedGroupId);
@@ -268,9 +417,15 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleRemoveUserFromGroup = async (userId) => {
     if (!window.confirm('Remove user from group?')) return;
     try {
-      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users/${userId}`, {
-        method: 'DELETE'
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('user_groups').delete().eq('user_id', userId).eq('group_id', selectedGroupId);
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users/${userId}`, {
+          method: 'DELETE'
+        });
+      }
       showToast('User removed from group', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
@@ -283,11 +438,17 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     e.preventDefault();
     if (!allocateSerial || !selectedGroupId) return;
     try {
-      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serial: allocateSerial })
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('device_groups').upsert({ serial: allocateSerial, group_id: selectedGroupId });
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serial: allocateSerial })
+        });
+      }
       showToast('Device allocated to group', 'success');
       setAllocateSerial('');
       fetchGroupAllocations(selectedGroupId);
@@ -300,9 +461,15 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   const handleRemoveDeviceFromGroup = async (serial) => {
     if (!window.confirm('Deallocate device from group?')) return;
     try {
-      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
-        method: 'DELETE'
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb.from('device_groups').delete().eq('serial', serial).eq('group_id', selectedGroupId);
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
+          method: 'DELETE'
+        });
+      }
       showToast('Device deallocated from group', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
@@ -313,11 +480,21 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
   // Assign or Share Device with specific group user (Group Admin & Super Admin)
   const handleAssignDeviceToUser = async (serial, userId) => {
     try {
-      await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId || null })
-      });
+      const sb = getSupabase();
+      if (sb) {
+        const { error } = await sb
+          .from('device_groups')
+          .update({ allocated_to_user_id: userId || null })
+          .eq('serial', serial)
+          .eq('group_id', selectedGroupId);
+        if (error) throw error;
+      } else {
+        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId || null })
+        });
+      }
       showToast(userId ? 'Device assigned to selected group member' : 'Device shared with all group members', 'success');
       fetchGroupAllocations(selectedGroupId);
     } catch (err) {
