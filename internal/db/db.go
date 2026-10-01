@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +30,20 @@ func (d *DB) RawDB() *sql.DB {
 	return d.db
 }
 
+// getPlatformID retrieves the persistent host machine identifier
+func getPlatformID() string {
+	if id := strings.TrimSpace(os.Getenv("PLATFORM_ID")); id != "" {
+		return id
+	}
+	data, err := os.ReadFile(".platform_id")
+	if err == nil {
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
 // OpenDB performs the open DB operation.
 func OpenDB(postgresURI string) (*DB, error) {
 	db, err := sql.Open("postgres", postgresURI)
@@ -43,6 +59,12 @@ func OpenDB(postgresURI string) (*DB, error) {
 	d := &DB{db: db}
 	if err := d.migrate(); err != nil {
 		return nil, fmt.Errorf("postgres migrate: %w", err)
+	}
+
+	platformID := getPlatformID()
+	if platformID != "" {
+		slog.Info("db: linked persistent platform_id", "platform_id", platformID)
+		_, _ = db.Exec("UPDATE devices SET platform_id = $1 WHERE platform_id IS NULL OR platform_id = ''", platformID)
 	}
 
 	return d, nil
@@ -156,9 +178,13 @@ func (d *DB) migrate() error {
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		);`,
 		`INSERT INTO farm_config (key, value) VALUES ('tunnel_url', '') ON CONFLICT (key) DO NOTHING;`,
-		`GRANT SELECT ON TABLE farm_config TO anon, authenticated;`,
 		`ALTER TABLE groups ADD COLUMN IF NOT EXISTS admin_id UUID REFERENCES users(id) ON DELETE SET NULL;`,
 		`ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS allocated_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_id TEXT;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS platform_id TEXT;`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS allocated_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL;`,
 	}
 
 	for _, q := range queries {
@@ -236,13 +262,15 @@ func (d *DB) RegisterDevice(providerIP, serial, model, manufacturer, android str
 	}
 	osVersion := android
 
+	platformID := getPlatformID()
+
 	query := `
 		INSERT INTO devices (
 			serial, provider_ip, model, manufacturer, sdk, abi, ram_mb, storage_mb,
 			display_width, display_height, display_dpi, battery, wifi_ssid, ip, status, connected_at, updated_at,
-			platform, os_version
+			platform, os_version, platform_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'idle', $15, NOW(), $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'idle', $15, NOW(), $16, $17, NULLIF($18, ''))
 		ON CONFLICT (serial) DO UPDATE SET
 			provider_ip = EXCLUDED.provider_ip,
 			model = EXCLUDED.model,
@@ -261,8 +289,9 @@ func (d *DB) RegisterDevice(providerIP, serial, model, manufacturer, android str
 			connected_at = EXCLUDED.connected_at,
 			updated_at = NOW(),
 			platform = EXCLUDED.platform,
-			os_version = EXCLUDED.os_version;`
-	_, err := d.db.Exec(query, serial, providerIP, model, manufacturer, sdk, abi, ram, storage, width, height, dpi, battery, wifi, ip, connectedAt, platform, osVersion)
+			os_version = EXCLUDED.os_version,
+			platform_id = COALESCE(NULLIF(EXCLUDED.platform_id, ''), devices.platform_id);`
+	_, err := d.db.Exec(query, serial, providerIP, model, manufacturer, sdk, abi, ram, storage, width, height, dpi, battery, wifi, ip, connectedAt, platform, osVersion, platformID)
 	if err != nil {
 		return err
 	}

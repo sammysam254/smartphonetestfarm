@@ -84,21 +84,43 @@ while (-not $process.HasExited) {
 
             # 2. Update Supabase REST table farm_config
             try {
+                $platformId = $env:PLATFORM_ID
+                if (-not $platformId -and (Test-Path ".platform_id")) {
+                    $platformId = (Get-Content ".platform_id").Trim()
+                }
+
                 $headers = @{
                     "apikey" = $SupabaseAnonKey
                     "Authorization" = "Bearer $SupabaseAnonKey"
                     "Content-Type" = "application/json"
                     "Prefer" = "resolution=merge-duplicates"
                 }
-                $sbPayload = @(
+                $sbList = @(
                     @{
                         key = "tunnel_url"
                         value = $tunnelUrl
                     }
-                ) | ConvertTo-Json
+                )
+                if ($platformId) {
+                    $sbList += @{
+                        key = "tunnel_url_$platformId"
+                        value = $tunnelUrl
+                    }
+                }
+                $sbPayload = $sbList | ConvertTo-Json
 
                 $sbRes = Invoke-RestMethod -Uri "$SupabaseUrl/rest/v1/farm_config" -Method Post -Headers $headers -Body $sbPayload -TimeoutSec 10 -ErrorAction SilentlyContinue
                 Write-Host " [*] Supabase farm_config updated successfully!" -ForegroundColor Green
+                if ($platformId) {
+                    Write-Host " [*] Platform ID: $platformId mapped to tunnel: $tunnelUrl" -ForegroundColor Green
+                    $devHeaders = @{
+                        "apikey" = $SupabaseAnonKey
+                        "Authorization" = "Bearer $SupabaseAnonKey"
+                        "Content-Type" = "application/json"
+                    }
+                    $devPayload = @{ provider_ip = $tunnelUrl } | ConvertTo-Json
+                    Invoke-RestMethod -Uri "$SupabaseUrl/rest/v1/devices?platform_id=eq.$platformId" -Method Patch -Headers $devHeaders -Body $devPayload -TimeoutSec 10 -ErrorAction SilentlyContinue
+                }
                 Write-Host " [*] Netlify dashboard is now connected to: $tunnelUrl" -ForegroundColor Cyan
             } catch {
                 Write-Host " [!] Direct Supabase sync error: $_" -ForegroundColor DarkGray

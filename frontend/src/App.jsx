@@ -9,6 +9,7 @@ import Login from './components/Login';
 import { useDevicesWS } from './hooks/useDevicesWS';
 import { COORDINATOR_API, SUPABASE_ENABLED, updateCoordinatorApi, getCoordinatorApi } from './lib/config';
 import { getSupabase, fetchLiveTunnelUrl } from './lib/supabase';
+import { ShieldAlert, Server, CheckCircle, RefreshCw } from 'lucide-react';
 import './App.css';
 
 function App() {
@@ -21,6 +22,11 @@ function App() {
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
   const lastClaimedPath = useRef('');
 
+  // User Profile state from Supabase public.users
+  const [userProfile, setUserProfile] = useState(null);
+  const [platformInput, setPlatformInput] = useState('');
+  const [linkingPlatform, setLinkingPlatform] = useState(false);
+
   const parseJwt = (t) => {
     try {
       return JSON.parse(atob(t.split('.')[1]));
@@ -30,9 +36,20 @@ function App() {
   };
 
   const decoded = token ? parseJwt(token) : null;
-  const isSuperAdmin = decoded?.email?.toLowerCase() === 'sammyseth260@gmail.com' || decoded?.role === 'admin';
-  const isGroupAdmin = decoded?.role === 'group_admin';
-  const isAdmin = isSuperAdmin || isGroupAdmin;
+
+  // Determine roles based on email and Supabase user record
+  const isSuperAdmin = 
+    decoded?.email?.toLowerCase() === 'sammyseth260@gmail.com' || 
+    userProfile?.email?.toLowerCase() === 'sammyseth260@gmail.com';
+
+  const isAdmin = 
+    isSuperAdmin || 
+    userProfile?.role === 'admin' || 
+    decoded?.role === 'admin' ||
+    (!userProfile?.created_by && userProfile?.role !== 'user');
+
+  const isSubUser = !isSuperAdmin && !isAdmin;
+  const isSuspended = userProfile?.status === 'suspended';
 
   useEffect(() => {
     const handlePopState = () => {
@@ -53,20 +70,19 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setToken('');
-    // When Supabase Auth is active, end the Supabase session as well.
+    setUserProfile(null);
     if (SUPABASE_ENABLED) {
       const supabase = getSupabase();
-      supabase.auth.signOut().catch(() => {});
+      supabase?.auth.signOut().catch(() => {});
     }
     showToast('Logged out successfully', 'success');
   };
 
-  // Keep the app token in sync with the Supabase session: page refreshes
-  // (persisted session) and hourly token refreshes both flow through here,
-  // and useDevicesWS reconnects automatically when the token changes.
+  // Sync token with Supabase Auth session
   useEffect(() => {
     if (!SUPABASE_ENABLED) return;
     const supabase = getSupabase();
+    if (!supabase) return;
 
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -80,6 +96,7 @@ function App() {
       if (event === 'SIGNED_OUT' || !session?.access_token) {
         localStorage.removeItem('token');
         setToken('');
+        setUserProfile(null);
         return;
       }
       localStorage.setItem('token', session.access_token);
@@ -92,11 +109,64 @@ function App() {
     };
   }, []);
 
+  // Fetch and subscribe to public.users profile (for suspension & platform_id)
+  useEffect(() => {
+    if (!token) {
+      setUserProfile(null);
+      return;
+    }
+    const currentSub = decoded?.sub;
+    if (!currentSub || !SUPABASE_ENABLED) return;
+
+    const sb = getSupabase();
+    if (!sb) return;
+
+    let mounted = true;
+
+    const loadProfile = async () => {
+      try {
+        const { data, error } = await sb
+          .from('users')
+          .select('*')
+          .eq('id', currentSub)
+          .maybeSingle();
+
+        if (mounted && data) {
+          setUserProfile(data);
+          if (data.platform_id) {
+            setPlatformInput(data.platform_id);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load user profile:', err);
+      }
+    };
+
+    loadProfile();
+
+    const channel = sb
+      .channel(`profile_sync_${currentSub}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'users', filter: `id=eq.${currentSub}` },
+        (payload) => {
+          if (mounted && payload.new) {
+            setUserProfile(payload.new);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      sb.removeChannel(channel);
+    };
+  }, [token, decoded?.sub]);
+
   // Dynamically synchronize live tunnel URL published by the local host to Supabase
   useEffect(() => {
     if (!SUPABASE_ENABLED) return;
 
-    // 1. Initial query from Supabase farm_config
     fetchLiveTunnelUrl().then((liveUrl) => {
       if (liveUrl && liveUrl !== COORDINATOR_API) {
         updateCoordinatorApi(liveUrl);
@@ -104,8 +174,6 @@ function App() {
       }
     });
 
-    // 2. Realtime subscription: if the local tunnel restarts and assigns a new URL,
-    // notify the browser and switch streams without requiring manual configuration!
     const sb = getSupabase();
     if (!sb) return;
 
@@ -127,21 +195,29 @@ function App() {
     };
   }, []);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SAAS MULTI-TENANT DEVICE FILTERING
+  // 1. Super Admin: sees ALL devices in Supabase across all platforms
+  // 2. Admin: sees devices uploaded by their verified persistent platform_id
+  // 3. Sub-user: strictly sees ONLY the device assigned to their account
+  // ─────────────────────────────────────────────────────────────────────────────
+  const scopedDevices = devices.filter((d) => {
+    if (isSuperAdmin) return true;
+    if (isAdmin) {
+      if (!userProfile?.platform_id) return false;
+      return d.platform_id === userProfile.platform_id;
+    }
+    // Sub-user: strictly assigned devices only
+    return d.allocated_to_user_id === userProfile?.id;
+  });
 
-
-
-  const orderedDevices = [...devices].sort((a, b) => {
-    // 1. Primary sort: Status
+  const orderedDevices = [...scopedDevices].sort((a, b) => {
     const statusOrder = { claimed: 1, idle: 2, busy: 3, offline: 4 };
     const orderA = statusOrder[a.status?.toLowerCase()] || 5;
     const orderB = statusOrder[b.status?.toLowerCase()] || 5;
     if (orderA !== orderB) return orderA - orderB;
-
-    // 3. Fallback sort: Connection time
     return new Date(b.connected_at || 0) - new Date(a.connected_at || 0);
   });
-
-
 
   const navigate = (path) => {
     window.history.pushState({}, '', path);
@@ -153,7 +229,7 @@ function App() {
   const pathMatch = currentPath.match(/^\/device\/([^/]+)/);
   if (pathMatch) {
     const serial = pathMatch[1];
-    const found = devices.find((d) => d.serial === serial);
+    const found = scopedDevices.find((d) => d.serial === serial);
     if (found) {
       activeDevice = {
         ...found,
@@ -177,37 +253,6 @@ function App() {
 
   const toggleTheme = () => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  };
-
-  // Fetch device list from Supabase, with coordinator fallback
-  const fetchDevices = async () => {
-    setLoading(true);
-    try {
-      if (SUPABASE_ENABLED) {
-        const sb = getSupabase();
-        if (sb) {
-          const { data, error } = await sb
-            .from('devices')
-            .select('*')
-            .order('connected_at', { ascending: false });
-          if (!error && Array.isArray(data)) {
-            setDevices(data);
-            return;
-          }
-        }
-      }
-      const api = getCoordinatorApi() || COORDINATOR_API;
-      if (api) {
-        const res = await fetch(`${api}/api/v1/devices`);
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-        const data = await res.json();
-        setDevices(data || []);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch devices:', err);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const showToast = (message, type = 'success') => {
@@ -250,7 +295,6 @@ function App() {
           }
         }
         navigate(`/device/${device.serial}`);
-        fetchDevices();
       }
     } catch (err) {
       showToast(`Claim failed: ${err.message}`, 'error');
@@ -292,11 +336,60 @@ function App() {
       if (activeDevice && activeDevice.serial === serial) {
         navigate('/');
       }
-      fetchDevices();
     } catch (err) {
       showToast(`Release failed: ${err.message}`, 'error');
     }
   };
+
+  // Link Platform ID from dashboard
+  const handleLinkPlatformId = async (e) => {
+    e?.preventDefault();
+    const cleanId = platformInput.trim().toUpperCase();
+    if (!cleanId) {
+      showToast('Please enter a valid Platform ID', 'error');
+      return;
+    }
+    setLinkingPlatform(true);
+    try {
+      const sb = getSupabase();
+      if (!sb) throw new Error('Database service unavailable');
+
+      const { error } = await sb
+        .from('users')
+        .update({ platform_id: cleanId, updated_at: new Date().toISOString() })
+        .eq('id', userProfile?.id || decoded?.sub);
+
+      if (error) throw error;
+
+      setUserProfile((prev) => ({ ...prev, platform_id: cleanId }));
+      showToast(`Platform ID ${cleanId} linked successfully!`, 'success');
+    } catch (err) {
+      showToast(`Failed to link platform ID: ${err.message}`, 'error');
+    } finally {
+      setLinkingPlatform(false);
+    }
+  };
+
+  // 🛑 SUSPENDED USER SCREEN
+  if (token && isSuspended) {
+    return (
+      <div className="suspended-screen">
+        <div className="suspended-card">
+          <div className="suspended-icon-glow">
+            <ShieldAlert size={40} color="#ef4444" />
+          </div>
+          <h2>Account Suspended</h2>
+          <p className="suspended-email">{userProfile?.email || decoded?.email}</p>
+          <p className="suspended-msg">
+            Your access has been revoked by your administrator. You are currently restricted from accessing smartphones, active stream sessions, or platform resources.
+          </p>
+          <button className="btn-suspended-logout" onClick={handleLogout}>
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!token) {
     return <Login onLoginSuccess={(newToken) => setToken(newToken)} />;
@@ -310,6 +403,7 @@ function App() {
         onLogout={handleLogout} 
         isAdmin={isAdmin}
         activeTab={activeTab}
+        currentUser={userProfile || decoded}
         onTabChange={(tab) => {
           setActiveTab(tab);
           if (activeDevice) {
@@ -333,17 +427,44 @@ function App() {
             showToast={showToast}
             isSuperAdmin={isSuperAdmin}
             currentUser={decoded}
+            userProfile={userProfile}
+            onProfileUpdate={(updated) => setUserProfile((prev) => ({ ...prev, ...updated }))}
           />
         ) : (
           <>
-            <StatsBar devices={devices} />
+            <StatsBar devices={scopedDevices} />
 
-             <div className="device-dashboard-tabs">
+            {/* Prompt Admin to Link Platform ID if unlinked */}
+            {isAdmin && !isSuperAdmin && !userProfile?.platform_id && (
+              <div className="platform-link-banner" style={{ margin: '16px 0 24px 0' }}>
+                <div className="platform-link-header">
+                  <Server size={20} style={{ color: '#60a5fa' }} />
+                  <h3>Link Your Farm Host (Platform ID)</h3>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
+                  Run <code>start.bat</code> on your computer to view your persistent Platform ID (e.g. <code>FP-HOST-C549AC85</code>). Enter it here to verify and display your attached smartphones:
+                </p>
+                <form onSubmit={handleLinkPlatformId} className="platform-link-form">
+                  <input
+                    type="text"
+                    className="platform-input"
+                    placeholder="Enter Platform ID (e.g. FP-HOST-C549AC85)"
+                    value={platformInput}
+                    onChange={(e) => setPlatformInput(e.target.value.toUpperCase())}
+                  />
+                  <button type="submit" disabled={linkingPlatform} className="btn-link-platform">
+                    {linkingPlatform ? 'Verifying...' : 'Verify & Link Devices'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            <div className="device-dashboard-tabs">
               <button 
                 className={`tab-nav-btn ${activeTab === 'device' ? 'active' : ''}`} 
                 onClick={() => setActiveTab('device')}
               >
-                Devices
+                Devices ({orderedDevices.length})
               </button>
               <button 
                 className={`tab-nav-btn ${activeTab === 'details' ? 'active' : ''}`} 
@@ -363,11 +484,23 @@ function App() {
                         <line x1="12" y1="18" x2="12.01" y2="18" strokeWidth="2.5" />
                       </svg>
                     </div>
-                    <h3>No Devices Detected</h3>
-                    <p>Ensure adb is running and your Android devices are connected.</p>
+                    <h3>
+                      {isSubUser 
+                        ? 'No Devices Assigned' 
+                        : !userProfile?.platform_id 
+                        ? 'Platform ID Required' 
+                        : 'No Devices Connected'}
+                    </h3>
+                    <p>
+                      {isSubUser 
+                        ? 'Your administrator has not assigned any smartphones to your account yet. Please contact your administrator.'
+                        : !userProfile?.platform_id 
+                        ? 'Link your computer Platform ID above to display your devices.' 
+                        : 'Ensure adb is running, your smartphone is connected via USB, and start.bat is active.'}
+                    </p>
                   </div>
                 ) : (
-                  orderedDevices.map((device, index) => (
+                  orderedDevices.map((device) => (
                     <DeviceCard
                       key={device.serial}
                       device={device}
@@ -386,7 +519,6 @@ function App() {
                 onRelease={handleRelease} 
               />
             )}
-
           </>
         )}
       </main>

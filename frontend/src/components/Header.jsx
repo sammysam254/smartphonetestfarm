@@ -33,9 +33,14 @@ const MoonIcon = () => (
   </svg>
 );
 
-function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange }) {
+function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange, currentUser }) {
   const [showTunnelModal, setShowTunnelModal] = useState(false);
   const hasOverride = Boolean(getStoredCoordinatorApi());
+
+  const userEmail = currentUser?.email || '';
+  const isSuper = userEmail.toLowerCase() === 'sammyseth260@gmail.com' || currentUser?.role === 'super_admin';
+  const roleLabel = isSuper ? 'Super Admin' : (isAdmin ? 'Admin' : 'Member');
+  const platformId = currentUser?.platform_id;
 
   return (
     <header className="header">
@@ -70,13 +75,44 @@ function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange 
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
-              <span>Settings</span>
+              <span>Management</span>
             </button>
           )}
         </nav>
       )}
 
       <div className="header-actions">
+        {userEmail && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '6px' }}>
+            <span style={{ 
+              fontSize: '11px', 
+              fontWeight: 700, 
+              padding: '3px 8px', 
+              borderRadius: '12px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              background: isSuper ? 'rgba(168, 85, 247, 0.2)' : (isAdmin ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.08)'),
+              color: isSuper ? '#c084fc' : (isAdmin ? '#60a5fa' : '#94a3b8'),
+              border: isSuper ? '1px solid rgba(168, 85, 247, 0.35)' : (isAdmin ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid rgba(255, 255, 255, 0.12)')
+            }}>
+              {roleLabel}
+            </span>
+            {platformId && (
+              <span style={{ 
+                fontSize: '11px', 
+                fontFamily: 'monospace',
+                background: 'rgba(16, 185, 129, 0.12)', 
+                color: '#10b981', 
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                padding: '2px 7px',
+                borderRadius: '6px'
+              }} title={`Linked Platform ID: ${platformId}`}>
+                {platformId}
+              </span>
+            )}
+          </div>
+        )}
+
         <button 
           className={`tunnel-config-btn ${hasOverride ? 'has-override' : ''}`}
           onClick={() => setShowTunnelModal(true)} 

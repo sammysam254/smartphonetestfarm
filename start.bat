@@ -28,6 +28,24 @@ if "%COORDINATOR_SUPABASE_URL%"=="" (
 )
 
 :: ---------------------------------------------------------------------
+:: 1b. Persistent SaaS Platform ID
+:: ---------------------------------------------------------------------
+if not exist ".platform_id" (
+    powershell -NoProfile -Command "'FP-HOST-' + [guid]::NewGuid().Guid.Substring(0,8).ToUpper() | Out-File -FilePath .platform_id -Encoding ascii -NoNewline"
+)
+set /p PLATFORM_ID=<".platform_id"
+set "PLATFORM_ID=%PLATFORM_ID: =%"
+
+echo.
+echo ===================================================================
+echo   YOUR PERSISTENT PLATFORM ID:  %PLATFORM_ID%
+echo ===================================================================
+echo   Enter this Platform ID on the Web Dashboard (vertextstreams.netlify.app)
+echo   to link and verify this computer's devices!
+echo ===================================================================
+echo.
+
+:: ---------------------------------------------------------------------
 :: 2. Check Core Binaries
 :: ---------------------------------------------------------------------
 echo [1/3] Verifying device farm binaries...
@@ -96,6 +114,7 @@ set COORDINATOR_GRPC_PORT=9000
 set COORDINATOR_JWT_SECRET=protean-default-secret-key-change-me-123456
 set COORDINATOR_STATIC_DIR=frontend\dist
 set BYPASS_AUTH_IN_DEV=true
+set PLATFORM_ID=%PLATFORM_ID%
 start "FlexPulse Coordinator (:9002)" bin\flexpulse-coordinator.exe
 
 ping 127.0.0.1 -n 4 >nul

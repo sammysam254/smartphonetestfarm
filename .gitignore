@@ -38,6 +38,9 @@ internal/stream/scrcpy-server.jar
 # Local build and run files
 provider
 provider.log
+.platform_id
+*.exe
+
 selfIdentity.plist
 
 # iOS Developer Disk Images cache

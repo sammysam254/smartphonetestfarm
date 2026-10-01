@@ -1,96 +1,73 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
-  FolderPlus, 
-  Trash2, 
   UserPlus, 
-  Layers, 
-  Calendar, 
-  Clock, 
   Smartphone, 
-  UserMinus,
-  CheckCircle,
-  AlertCircle,
-  Mail,
-  ShieldAlert,
-  ArrowRight,
-  Database,
-  CalendarDays
+  ShieldAlert, 
+  ShieldCheck, 
+  Trash2, 
+  CheckCircle, 
+  AlertCircle, 
+  Server, 
+  Link, 
+  Copy, 
+  Check, 
+  Unlock, 
+  Ban, 
+  RefreshCw,
+  Cpu
 } from 'lucide-react';
-import './SettingsPanel.css';
-import { getCoordinatorApi } from '../lib/config';
 import { getSupabase } from '../lib/supabase';
+import { getCoordinatorApi } from '../lib/config';
+import './SettingsPanel.css';
 
-function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, currentUser }) {
-  const [activeSubTab, setActiveSubTab] = useState('users');
+function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, currentUser, userProfile, onProfileUpdate }) {
+  const [activeTab, setActiveTab] = useState('team');
   const [users, setUsers] = useState([]);
-  const [groups, setGroups] = useState([]);
-  
-  // Loading & error states
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [loadingGroups, setLoadingGroups] = useState(false);
 
-  // Form states - Create User
+  // Create User Form
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
-  const [userRole, setUserRole] = useState('user');
-  const [userGroup, setUserGroup] = useState('Public');
   const [creatingUser, setCreatingUser] = useState(false);
 
-  // Form states - Create Group
-  const [groupName, setGroupName] = useState('');
-  const [groupDesc, setGroupDesc] = useState('');
-  const [groupAdminId, setGroupAdminId] = useState('');
-  const [groupExpiry, setGroupExpiry] = useState('');
-  const [creatingGroup, setCreatingGroup] = useState(false);
+  // Platform ID management
+  const [editingPlatform, setEditingPlatform] = useState(false);
+  const [platformInput, setPlatformInput] = useState(userProfile?.platform_id || '');
+  const [copiedPlatform, setCopiedPlatform] = useState(false);
 
-  // Allocations states
-  const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [groupUsers, setGroupUsers] = useState([]);
-  const [groupDeviceSerials, setGroupDeviceSerials] = useState([]);
-  const [loadingAllocations, setLoadingAllocations] = useState(false);
-  const [allocateUserId, setAllocateUserId] = useState('');
-  const [allocateSerial, setAllocateSerial] = useState('');
+  const effectivePlatformId = userProfile?.platform_id || '';
+  const currentUserId = userProfile?.id || currentUser?.sub;
 
-  // Robust API Fetcher (fallback for local coordinator actions)
-  const apiFetch = async (endpoint, options = {}) => {
-    const base = getCoordinatorApi();
-    if (!base) {
-      throw new Error('Local farm coordinator is offline.');
-    }
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {})
-    };
-    const res = await fetch(`${base}${endpoint}`, { ...options, headers });
-    const contentType = res.headers.get('content-type') || '';
-    if (!res.ok || !contentType.includes('application/json')) {
-      if (contentType.includes('text/html')) {
-        throw new Error('Local farm coordinator is offline.');
-      }
-      const txt = await res.text();
-      throw new Error(txt || `HTTP error ${res.status}`);
-    }
-    return res.json();
-  };
+  // Filter devices available to this admin:
+  // - Super Admin sees all devices
+  // - Admin sees devices matching their persistent platform_id
+  const adminDevices = (allDevices || []).filter(d => {
+    if (isSuperAdmin) return true;
+    if (!effectivePlatformId) return false;
+    return d.platform_id === effectivePlatformId;
+  });
 
-  // Fetch all users directly from Supabase Cloud Directory
+  // Fetch users according to SaaS isolation:
+  // - Super Admin sees ALL users
+  // - Admin sees STRICTLY users they created themselves (created_by === currentUserId)
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
       const sb = getSupabase();
-      if (sb) {
-        const { data, error } = await sb
-          .from('users')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (!error && data) {
-          setUsers(data);
-          return;
-        }
+      if (!sb) return;
+
+      let query = sb.from('users').select('*').order('created_at', { ascending: false });
+      if (!isSuperAdmin) {
+        query = query.eq('created_by', currentUserId);
       }
-      const data = await apiFetch('/api/v1/admin/users');
-      setUsers(data || []);
+
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        setUsers(data);
+      } else if (error) {
+        showToast(error.message, 'error');
+      }
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -98,434 +75,195 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
     }
   };
 
-  // Fetch all groups directly from Supabase Cloud
-  const fetchGroups = async () => {
-    setLoadingGroups(true);
-    try {
-      const sb = getSupabase();
-      let gData = null;
-      if (sb) {
-        const { data, error } = await sb
-          .from('groups')
-          .select('id, name, description, admin_id, expires_at, created_at')
-          .order('name', { ascending: true });
-        if (!error && data) {
-          gData = data;
-        }
-      }
-      if (!gData) {
-        gData = await apiFetch('/api/v1/admin/groups');
-      }
-
-      // If group admin (not super admin), filter to only groups they administer
-      if (!isSuperAdmin && currentUser?.sub) {
-        gData = (gData || []).filter(g => g.admin_id === currentUser.sub);
-      }
-
-      setGroups(gData || []);
-      if (gData && gData.length > 0) {
-        if (!selectedGroupId) {
-          setSelectedGroupId(gData[0].id);
-        }
-        const hasPublic = gData.some(g => g.name === 'Public');
-        if (!hasPublic) {
-          setUserGroup(gData[0].name);
-        }
-      }
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setLoadingGroups(false);
-    }
-  };
-
-  // Fetch group specific users and devices from Supabase Cloud
-  const fetchGroupAllocations = async (groupId) => {
-    if (!groupId) return;
-    setLoadingAllocations(true);
-    try {
-      const sb = getSupabase();
-      let uList = null;
-      let dList = null;
-
-      if (sb) {
-        // Fetch group mapped users
-        const { data: ug, error: ugErr } = await sb
-          .from('user_groups')
-          .select('user_id')
-          .eq('group_id', groupId);
-        if (!ugErr && ug) {
-          const userIds = ug.map(item => item.user_id);
-          if (userIds.length > 0) {
-            const { data: uRows } = await sb.from('users').select('*').in('id', userIds);
-            uList = uRows || [];
-          } else {
-            uList = [];
-          }
-        }
-
-        // Fetch group allocated devices
-        const { data: dg, error: dgErr } = await sb
-          .from('device_groups')
-          .select('serial, allocated_to_user_id')
-          .eq('group_id', groupId);
-        if (!dgErr && dg) {
-          dList = dg;
-        }
-      }
-
-      if (uList === null) {
-        uList = await apiFetch(`/api/v1/admin/groups/${groupId}/users`);
-      }
-      if (dList === null) {
-        dList = await apiFetch(`/api/v1/admin/groups/${groupId}/devices`);
-      }
-
-      setGroupUsers(uList || []);
-      setGroupDeviceSerials(dList || []);
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setLoadingAllocations(false);
-    }
-  };
-
   useEffect(() => {
-    if (activeSubTab === 'users') {
-      fetchUsers();
-      fetchGroups();
-    } else if (activeSubTab === 'groups') {
-      fetchGroups();
-    } else if (activeSubTab === 'allocations') {
-      fetchUsers();
-      fetchGroups();
-    }
-  }, [activeSubTab]);
+    fetchUsers();
 
-  useEffect(() => {
-    if (selectedGroupId && activeSubTab === 'allocations') {
-      fetchGroupAllocations(selectedGroupId);
-    }
-  }, [selectedGroupId, activeSubTab]);
-
-  // Realtime Cloud Sync via Supabase
-  useEffect(() => {
     const sb = getSupabase();
     if (!sb) return;
 
-    const channel = sb.channel('admin_cloud_sync')
+    // Realtime subscriptions on users and devices
+    const userChannel = sb
+      .channel('saas_users_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
         fetchUsers();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'groups' }, () => {
-        fetchGroups();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'device_groups' }, () => {
-        if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_groups' }, () => {
-        if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
       })
       .subscribe();
 
     return () => {
-      sb.removeChannel(channel);
+      sb.removeChannel(userChannel);
     };
-  }, [selectedGroupId]);
+  }, [currentUserId, isSuperAdmin]);
 
-  // Auto-reload when coordinator tunnel URL connects or changes
-  useEffect(() => {
-    const handleApiUpdate = () => {
-      fetchUsers();
-      fetchGroups();
-      if (selectedGroupId) fetchGroupAllocations(selectedGroupId);
-    };
-    window.addEventListener('coordinator-api-updated', handleApiUpdate);
-    return () => window.removeEventListener('coordinator-api-updated', handleApiUpdate);
-  }, [selectedGroupId]);
-
-  // Create User Handler directly in Supabase Cloud
+  // Create user under this Admin
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!userEmail || !userPassword) return;
+    if (!userEmail.trim() || !userPassword) {
+      showToast('Email and password are required', 'error');
+      return;
+    }
+    if (userPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+
     setCreatingUser(true);
     try {
       const sb = getSupabase();
-      if (sb) {
-        const { data, error } = await sb.auth.signUp({
-          email: userEmail.trim(),
-          password: userPassword
-        });
-        if (error) throw error;
-        if (data?.user) {
-          const finalRole = userEmail.toLowerCase() === 'sammyseth260@gmail.com' ? 'admin' : userRole;
-          await sb.from('users').upsert({
-            id: data.user.id,
-            email: userEmail.trim(),
-            role: finalRole,
-            auth_provider: 'supabase',
-            updated_at: new Date().toISOString()
-          });
+      if (!sb) throw new Error('Database service unavailable');
 
-          if (userGroup) {
-            const targetGroup = groups.find(g => g.name === userGroup);
-            if (targetGroup) {
-              await sb.from('user_groups').upsert({
-                user_id: data.user.id,
-                group_id: targetGroup.id
-              });
-            }
-          }
-        }
-      } else {
-        await apiFetch('/api/v1/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: userEmail,
-            password: userPassword,
-            role: userRole,
-            groups: [userGroup]
-          })
+      // 1. Sign up user via Supabase Auth with metadata
+      const { data: authData, error: authError } = await sb.auth.signUp({
+        email: userEmail.trim(),
+        password: userPassword,
+        options: {
+          data: {
+            created_by: currentUserId,
+            platform_id: effectivePlatformId || null,
+            role: 'user',
+          },
+        },
+      });
+
+      if (authError) throw authError;
+
+      // 2. Explicitly ensure record exists in public.users with status active
+      if (authData?.user?.id) {
+        await sb.from('users').upsert({
+          id: authData.user.id,
+          email: userEmail.trim(),
+          role: 'user',
+          created_by: currentUserId,
+          platform_id: effectivePlatformId || null,
+          status: 'active',
+          auth_provider: 'supabase',
+          updated_at: new Date().toISOString(),
         });
       }
 
-      showToast('User created successfully in cloud directory!', 'success');
+      showToast(`User ${userEmail.trim()} created successfully!`, 'success');
       setUserEmail('');
       setUserPassword('');
-      setUserRole('user');
-      setUserGroup('Public');
       fetchUsers();
     } catch (err) {
-      showToast(`User creation failed: ${err.message}`, 'error');
+      showToast(`Failed to create user: ${err.message}`, 'error');
     } finally {
       setCreatingUser(false);
     }
   };
 
-  // Delete User Handler
-  const handleDeleteUser = async (userId, email) => {
-    if (!window.confirm(`Are you sure you want to delete user: ${email}?`)) return;
+  // Toggle user suspension status (Block / Unblock)
+  const handleToggleStatus = async (user) => {
+    const nextStatus = user.status === 'suspended' ? 'active' : 'suspended';
     try {
       const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('users').delete().eq('id', userId);
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/users?id=${userId}`, {
-          method: 'DELETE'
-        });
-      }
-      showToast('User deleted successfully', 'success');
-      fetchUsers();
+      if (!sb) throw new Error('Database service unavailable');
+
+      const { error } = await sb
+        .from('users')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      showToast(`User ${user.email} is now ${nextStatus}!`, 'success');
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: nextStatus } : u));
     } catch (err) {
-      showToast(`Deletion failed: ${err.message}`, 'error');
+      showToast(`Error updating user status: ${err.message}`, 'error');
     }
   };
 
-  // Create Group Handler
-  const handleCreateGroup = async (e) => {
-    e.preventDefault();
-    if (!groupName) return;
-    setCreatingGroup(true);
+  // Assign device to sub-user
+  const handleAssignDevice = async (serial, userId) => {
+    if (!serial || !userId) return;
     try {
-      const payload = {
-        id: crypto.randomUUID(),
-        name: groupName.trim(),
-        description: groupDesc.trim(),
-        admin_id: groupAdminId || null,
-        created_at: new Date().toISOString()
-      };
-      if (groupExpiry) {
-        payload.expires_at = new Date(groupExpiry).toISOString();
-      }
-
       const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('groups').insert(payload);
-        if (error) throw error;
-        if (payload.admin_id) {
-          await sb.from('users').update({ role: 'group_admin' }).eq('id', payload.admin_id).eq('role', 'user');
-        }
-      } else {
-        await apiFetch('/api/v1/admin/groups', {
+      if (!sb) throw new Error('Database service unavailable');
+
+      const { error } = await sb
+        .from('devices')
+        .update({ allocated_to_user_id: userId, updated_at: new Date().toISOString() })
+        .eq('serial', serial);
+
+      if (error) throw error;
+
+      showToast(`Device ${serial} assigned to user!`, 'success');
+    } catch (err) {
+      showToast(`Failed to assign device: ${err.message}`, 'error');
+    }
+  };
+
+  // Revoke device assignment
+  const handleRevokeDevice = async (serial) => {
+    try {
+      const sb = getSupabase();
+      if (!sb) throw new Error('Database service unavailable');
+
+      const { error } = await sb
+        .from('devices')
+        .update({ allocated_to_user_id: null, updated_at: new Date().toISOString() })
+        .eq('serial', serial);
+
+      if (error) throw error;
+
+      showToast(`Assignment revoked for ${serial}!`, 'success');
+    } catch (err) {
+      showToast(`Failed to revoke device: ${err.message}`, 'error');
+    }
+  };
+
+  // Force release active stream
+  const handleForceReleaseStream = async (serial) => {
+    try {
+      const api = getCoordinatorApi();
+      if (api) {
+        await fetch(`${api}/api/v1/devices/${serial}/release`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(() => {});
       }
-
-      showToast('Group created successfully with assigned admin!', 'success');
-      setGroupName('');
-      setGroupDesc('');
-      setGroupAdminId('');
-      setGroupExpiry('');
-      fetchGroups();
-      fetchUsers();
-    } catch (err) {
-      showToast(`Group creation failed: ${err.message}`, 'error');
-    } finally {
-      setCreatingGroup(false);
-    }
-  };
-
-  // Delete Group Handler
-  const handleDeleteGroup = async (groupId, name) => {
-    if (!window.confirm(`Are you sure you want to delete group: ${name}?`)) return;
-    try {
       const sb = getSupabase();
       if (sb) {
-        const { error } = await sb.from('groups').delete().eq('id', groupId);
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${groupId}`, {
-          method: 'DELETE'
-        });
+        await sb.from('devices').update({ status: 'idle', stream_port: 0 }).eq('serial', serial);
       }
-      showToast('Group deleted successfully', 'success');
-      fetchGroups();
+      showToast(`Device ${serial} stream force-released!`, 'success');
     } catch (err) {
-      showToast(`Group deletion failed: ${err.message}`, 'error');
+      showToast(`Failed to release stream: ${err.message}`, 'error');
     }
   };
 
-  // Add User to Group
-  const handleAddUserToGroup = async (e) => {
-    e.preventDefault();
-    if (!allocateUserId || !selectedGroupId) return;
+  // Update persistent Platform ID for this admin
+  const handleSavePlatformId = async () => {
+    const cleanId = platformInput.trim().toUpperCase();
+    if (!cleanId) {
+      showToast('Please enter a valid Platform ID', 'error');
+      return;
+    }
     try {
       const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('user_groups').insert({ user_id: allocateUserId, group_id: selectedGroupId });
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: allocateUserId })
-        });
+      if (!sb) throw new Error('Database service unavailable');
+
+      const { error } = await sb
+        .from('users')
+        .update({ platform_id: cleanId, updated_at: new Date().toISOString() })
+        .eq('id', currentUserId);
+
+      if (error) throw error;
+
+      if (onProfileUpdate) {
+        onProfileUpdate({ platform_id: cleanId });
       }
-      showToast('User added to group', 'success');
-      setAllocateUserId('');
-      fetchGroupAllocations(selectedGroupId);
+      setEditingPlatform(false);
+      showToast(`Platform ID verified and linked to ${cleanId}!`, 'success');
     } catch (err) {
-      showToast(`Failed to add user: ${err.message}`, 'error');
+      showToast(`Failed to link platform ID: ${err.message}`, 'error');
     }
   };
 
-  // Remove User from Group
-  const handleRemoveUserFromGroup = async (userId) => {
-    if (!window.confirm('Remove user from group?')) return;
-    try {
-      const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('user_groups').delete().eq('user_id', userId).eq('group_id', selectedGroupId);
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/users/${userId}`, {
-          method: 'DELETE'
-        });
-      }
-      showToast('User removed from group', 'success');
-      fetchGroupAllocations(selectedGroupId);
-    } catch (err) {
-      showToast(`Failed to remove user: ${err.message}`, 'error');
-    }
-  };
-
-  // Add Device to Group
-  const handleAddDeviceToGroup = async (e) => {
-    e.preventDefault();
-    if (!allocateSerial || !selectedGroupId) return;
-    try {
-      const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('device_groups').upsert({ serial: allocateSerial, group_id: selectedGroupId });
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ serial: allocateSerial })
-        });
-      }
-      showToast('Device allocated to group', 'success');
-      setAllocateSerial('');
-      fetchGroupAllocations(selectedGroupId);
-    } catch (err) {
-      showToast(`Failed to allocate device: ${err.message}`, 'error');
-    }
-  };
-
-  // Remove Device from Group (Super Admin action)
-  const handleRemoveDeviceFromGroup = async (serial) => {
-    if (!window.confirm('Deallocate device from group?')) return;
-    try {
-      const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb.from('device_groups').delete().eq('serial', serial).eq('group_id', selectedGroupId);
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
-          method: 'DELETE'
-        });
-      }
-      showToast('Device deallocated from group', 'success');
-      fetchGroupAllocations(selectedGroupId);
-    } catch (err) {
-      showToast(`Failed to remove device: ${err.message}`, 'error');
-    }
-  };
-
-  // Assign or Share Device with specific group user (Group Admin & Super Admin)
-  const handleAssignDeviceToUser = async (serial, userId) => {
-    try {
-      const sb = getSupabase();
-      if (sb) {
-        const { error } = await sb
-          .from('device_groups')
-          .update({ allocated_to_user_id: userId || null })
-          .eq('serial', serial)
-          .eq('group_id', selectedGroupId);
-        if (error) throw error;
-      } else {
-        await apiFetch(`/api/v1/admin/groups/${selectedGroupId}/devices/${serial}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId || null })
-        });
-      }
-      showToast(userId ? 'Device assigned to selected group member' : 'Device shared with all group members', 'success');
-      fetchGroupAllocations(selectedGroupId);
-    } catch (err) {
-      showToast(`Failed to update assignment: ${err.message}`, 'error');
-    }
-  };
-
-  const isGroupExpired = (group) => {
-    if (!group.expires_at) return false;
-    return new Date(group.expires_at) < new Date();
-  };
-
-  // Format Date Helper
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'Never';
-    const d = new Date(dateStr);
-    return d.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // Compute some quick statistics
-  const adminStats = {
-    totalUsers: users.length,
-    totalGroups: groups.length,
-    activeGroups: groups.filter(g => !isGroupExpired(g)).length,
-    totalDevices: allDevices.length
+  const copyPlatformId = () => {
+    if (!effectivePlatformId) return;
+    navigator.clipboard.writeText(effectivePlatformId);
+    setCopiedPlatform(true);
+    setTimeout(() => setCopiedPlatform(false), 2000);
   };
 
   return (
@@ -533,518 +271,435 @@ function SettingsPanel({ token, devices: allDevices, showToast, isSuperAdmin, cu
       {/* 👑 ENTERPRISE HERO HEADER */}
       <div className="settings-hero">
         <div className="settings-hero-content">
-          <h2>Administration & Governance</h2>
-          <p>Configure enterprise users, design logical device access scopes, track expirations, and allocate smartphone inventory.</p>
+          <h2>
+            {isSuperAdmin ? 'Platform Super-Admin Console' : 'Device Farm Management'}
+          </h2>
+          <p>
+            {isSuperAdmin 
+              ? 'Global multi-tenant governance. Monitor all farm hosts, manage administrator privileges, revoke active streams, and oversee tenant isolation.'
+              : 'Manage team access, allocate smartphones to specific users, and bind your local computer farm host using your persistent Platform ID.'}
+          </p>
         </div>
 
-        {/* 📊 REAL-TIME STATS BAR */}
         <div className="admin-stats-grid">
           <div className="admin-stat-card">
-            <div className="stat-icon-wrap"><Users size={18} /></div>
-            <div className="stat-info">
-              <span className="stat-val">{adminStats.totalUsers}</span>
-              <span className="stat-label">Total Users</span>
+            <Cpu className="admin-stat-icon" size={24} style={{ color: '#3b82f6' }} />
+            <div className="admin-stat-info">
+              <span className="admin-stat-label">Host Devices</span>
+              <span className="admin-stat-value">{adminDevices.length}</span>
             </div>
           </div>
           <div className="admin-stat-card">
-            <div className="stat-icon-wrap"><Layers size={18} /></div>
-            <div className="stat-info">
-              <span className="stat-val">{adminStats.activeGroups} <small style={{fontSize: 11}}>/ {adminStats.totalGroups}</small></span>
-              <span className="stat-label">Active Groups</span>
-            </div>
-          </div>
-          <div className="admin-stat-card">
-            <div className="stat-icon-wrap"><Smartphone size={18} /></div>
-            <div className="stat-info">
-              <span className="stat-val">{adminStats.totalDevices}</span>
-              <span className="stat-label">Smartphones</span>
+            <Users className="admin-stat-icon" size={24} style={{ color: '#10b981' }} />
+            <div className="admin-stat-info">
+              <span className="admin-stat-label">{isSuperAdmin ? 'Total Users' : 'Team Members'}</span>
+              <span className="admin-stat-value">{users.length}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {!getCoordinatorApi() && (
-        <div className="offline-farm-banner">
-          <AlertCircle size={20} className="offline-icon" />
-          <div className="offline-text">
-            <strong>Local Streaming Farm is Offline</strong>
-            <p>
-              To manage live users, groups, and device streams from this dashboard, double-click <code>start.bat</code> on your PC. 
-              The Cloudflare Quick Tunnel will automatically synchronize with this dashboard. You can also click <strong>Tunnel</strong> in the top header to enter your tunnel URL manually.
+      {/* 🏷️ PERSISTENT PLATFORM ID LINK BANNER */}
+      <div className="platform-link-banner">
+        <div className="platform-link-header">
+          <Server size={20} style={{ color: '#60a5fa' }} />
+          <h3>Host Machine Platform ID</h3>
+          {effectivePlatformId ? (
+            <span className="platform-linked-pill" style={{ margin: 0 }}>
+              <CheckCircle size={14} /> Linked & Active
+            </span>
+          ) : (
+            <span style={{ color: '#f59e0b', fontSize: '13px', fontWeight: 600 }}>
+              ⚠️ Not Linked (Run start.bat on your computer to obtain your ID)
+            </span>
+          )}
+        </div>
+
+        {editingPlatform || !effectivePlatformId ? (
+          <div className="platform-link-form">
+            <input 
+              type="text" 
+              className="platform-input"
+              placeholder="e.g. FP-HOST-C549AC85"
+              value={platformInput}
+              onChange={(e) => setPlatformInput(e.target.value.toUpperCase())}
+            />
+            <button className="btn-link-platform" onClick={handleSavePlatformId}>
+              Verify & Link Platform ID
+            </button>
+            {effectivePlatformId && (
+              <button 
+                className="btn-secondary" 
+                style={{ padding: '10px 16px', background: 'transparent', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer' }}
+                onClick={() => setEditingPlatform(false)}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <code style={{ fontSize: '16px', fontWeight: 700, letterSpacing: '0.05em', color: '#60a5fa', background: 'rgba(0,0,0,0.3)', padding: '6px 14px', borderRadius: '6px', border: '1px solid rgba(59,130,246,0.3)' }}>
+                {effectivePlatformId}
+              </code>
+              <button 
+                onClick={copyPlatformId} 
+                style={{ background: 'transparent', border: 'none', color: copiedPlatform ? '#10b981' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+              >
+                {copiedPlatform ? <Check size={16} /> : <Copy size={16} />}
+                <span>{copiedPlatform ? 'Copied!' : 'Copy'}</span>
+              </button>
+            </div>
+            <button 
+              onClick={() => { setPlatformInput(effectivePlatformId); setEditingPlatform(true); }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+            >
+              Change Platform ID
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 🧭 NAVIGATION TABS */}
+      <div className="settings-tabs">
+        <button 
+          className={`settings-tab-btn ${activeTab === 'team' ? 'active' : ''}`}
+          onClick={() => setActiveTab('team')}
+        >
+          <Users size={16} />
+          <span>{isSuperAdmin ? 'All Users & Admins' : 'My Team Members'}</span>
+        </button>
+
+        <button 
+          className={`settings-tab-btn ${activeTab === 'devices' ? 'active' : ''}`}
+          onClick={() => setActiveTab('devices')}
+        >
+          <Smartphone size={16} />
+          <span>Device Allocation ({adminDevices.length})</span>
+        </button>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 1: TEAM MEMBERS & SUB-USER CREATION
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'team' && (
+        <div className="tab-pane">
+          {/* Create User Form */}
+          <div className="panel-card" style={{ marginBottom: '24px' }}>
+            <div className="card-header">
+              <UserPlus size={18} style={{ color: '#3b82f6' }} />
+              <h3>{isSuperAdmin ? 'Create New User or Admin' : 'Create Sub-User for Your Team'}</h3>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '4px 0 16px 0' }}>
+              {isSuperAdmin 
+                ? 'Create a new user account in Supabase. Admins will only see and manage their own created users.'
+                : 'Users created here are strictly scoped to your account. You can assign them smartphones from your farm.'}
             </p>
+
+            <form onSubmit={handleCreateUser} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '220px' }}>
+                <input 
+                  type="email"
+                  placeholder="Team member email"
+                  required
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  style={{ width: '100%', padding: '10px 14px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', outline: 'none' }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: '180px' }}>
+                <input 
+                  type="password"
+                  placeholder="Password (min 6 chars)"
+                  required
+                  value={userPassword}
+                  onChange={(e) => setUserPassword(e.target.value)}
+                  style={{ width: '100%', padding: '10px 14px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', outline: 'none' }}
+                />
+              </div>
+              <button 
+                type="submit" 
+                disabled={creatingUser}
+                className="btn-primary"
+                style={{ padding: '10px 22px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {creatingUser ? <RefreshCw size={16} className="spin" /> : <UserPlus size={16} />}
+                <span>{creatingUser ? 'Creating...' : 'Create User'}</span>
+              </button>
+            </form>
+          </div>
+
+          {/* Team Members List */}
+          <div className="panel-card">
+            <div className="card-header" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Users size={18} style={{ color: '#10b981' }} />
+                <h3>{isSuperAdmin ? 'Directory of Users & Admins' : 'Your Created Users'} ({users.length})</h3>
+              </div>
+              <button 
+                onClick={fetchUsers} 
+                className="btn-refresh" 
+                title="Refresh user list"
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                <RefreshCw size={16} className={loadingUsers ? 'spin' : ''} />
+              </button>
+            </div>
+
+            {loadingUsers ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Loading users...
+              </div>
+            ) : users.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No users found. Create your first team member above!
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', marginTop: '16px' }}>
+                <table className="enterprise-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '12px' }}>
+                      <th style={{ padding: '12px 16px' }}>Email</th>
+                      <th style={{ padding: '12px 16px' }}>Role</th>
+                      <th style={{ padding: '12px 16px' }}>Status</th>
+                      <th style={{ padding: '12px 16px' }}>Assigned Devices</th>
+                      <th style={{ padding: '12px 16px' }}>Assign New Device</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(u => {
+                      const userAssignedDevices = (allDevices || []).filter(d => d.allocated_to_user_id === u.id);
+                      const isSuspended = u.status === 'suspended';
+
+                      return (
+                        <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+                          <td style={{ padding: '14px 16px', fontWeight: 500, color: '#f8fafc' }}>
+                            {u.email}
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <span style={{ 
+                              padding: '3px 8px', 
+                              borderRadius: '4px', 
+                              fontSize: '11px', 
+                              fontWeight: 600, 
+                              textTransform: 'uppercase',
+                              background: u.role === 'admin' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                              color: u.role === 'admin' ? '#c084fc' : '#60a5fa',
+                              border: u.role === 'admin' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)'
+                            }}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <span style={{ 
+                              padding: '3px 8px', 
+                              borderRadius: '4px', 
+                              fontSize: '11px', 
+                              fontWeight: 600,
+                              background: isSuspended ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                              color: isSuspended ? '#ef4444' : '#10b981',
+                              border: isSuspended ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              {isSuspended ? <Ban size={12} /> : <CheckCircle size={12} />}
+                              {isSuspended ? 'Suspended' : 'Active'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            {userAssignedDevices.length === 0 ? (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>None</span>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                {userAssignedDevices.map(dev => (
+                                  <span key={dev.serial} style={{ 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    gap: '6px', 
+                                    background: 'rgba(255,255,255,0.06)', 
+                                    padding: '3px 8px', 
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    border: '1px solid rgba(255,255,255,0.1)'
+                                  }}>
+                                    <span>{dev.model || dev.serial}</span>
+                                    <button 
+                                      onClick={() => handleRevokeDevice(dev.serial)} 
+                                      title="Revoke device assignment"
+                                      style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px' }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <select 
+                              defaultValue=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleAssignDevice(e.target.value, u.id);
+                                  e.target.value = "";
+                                }
+                              }}
+                              style={{ 
+                                background: 'rgba(0,0,0,0.4)', 
+                                border: '1px solid rgba(255,255,255,0.15)', 
+                                color: '#e2e8f0', 
+                                padding: '6px 10px', 
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                outline: 'none'
+                              }}
+                            >
+                              <option value="" disabled>+ Assign a device...</option>
+                              {adminDevices.map(d => (
+                                <option key={d.serial} value={d.serial}>
+                                  {d.model || d.serial} ({d.serial}) {d.allocated_to_user_id === u.id ? '✓ (Currently Assigned)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleToggleStatus(u)}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                background: isSuspended ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: isSuspended ? '#10b981' : '#ef4444',
+                                border: isSuspended ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              {isSuspended ? 'Activate User' : 'Suspend User'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 🚀 SUB-TAB SWITCHER */}
-      <div className="settings-sub-navigation">
-        <button
-          className={`settings-nav-tab ${activeSubTab === 'users' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('users')}
-        >
-          <Users size={16} />
-          <span>User Management</span>
-        </button>
-        <button
-          className={`settings-nav-tab ${activeSubTab === 'groups' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('groups')}
-        >
-          <FolderPlus size={16} />
-          <span>Groups & Access Expiry</span>
-        </button>
-        <button
-          className={`settings-nav-tab ${activeSubTab === 'allocations' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('allocations')}
-        >
-          <Layers size={16} />
-          <span>Members & Devices</span>
-        </button>
-      </div>
-
-      {/* ⚡ ACTIVE TAB VIEW */}
-      <div className="settings-view-viewport">
-        {/* ─── USERS VIEW ─── */}
-        {activeSubTab === 'users' && (
-          <div className="settings-grid-layout">
-            <div className="settings-main-card">
-              <div className="card-header-bar">
-                <h3>Directory Users</h3>
-                <span className="count-badge">{users.length} accounts</span>
-              </div>
-              {loadingUsers ? (
-                <div className="settings-spinner-wrapper"><span className="settings-spinner"></span></div>
-              ) : (
-                <div className="settings-table-wrapper">
-                  <table className="settings-table">
-                    <thead>
-                      <tr>
-                        <th>Email Address</th>
-                        <th>User Role</th>
-                        <th>Auth Provider</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.length === 0 ? (
-                        <tr>
-                          <td colSpan="5" className="empty-table-state">
-                            <ShieldAlert size={24} />
-                            <p>No user accounts found. Database requires seeding.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        users.map((u) => (
-                          <tr key={u.id}>
-                            <td className="user-email-col">
-                              <Mail size={14} className="cell-icon" />
-                              <span>{u.email}</span>
-                            </td>
-                            <td>
-                              <span className={`role-badge ${u.role}`}>
-                                {u.role}
-                              </span>
-                            </td>
-                            <td>
-                              <span className="provider-pill">{u.auth_provider}</span>
-                            </td>
-                            <td className="time-col">{formatDate(u.created_at)}</td>
-                            <td>
-                              <button
-                                className="settings-action-btn danger-icon"
-                                onClick={() => handleDeleteUser(u.id, u.email)}
-                                disabled={u.role === 'admin' || u.email === 'admin@domain.com'}
-                                title={u.role === 'admin' || u.email === 'admin@domain.com' ? 'Administrator accounts cannot be deleted here' : 'Delete User Account'}
-                              >
-                                <Trash2 size={14} />
-                                <span>Delete</span>
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 2: DEVICE MANAGEMENT & STREAM RECOVERY
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'devices' && (
+        <div className="tab-pane">
+          <div className="panel-card">
+            <div className="card-header">
+              <Smartphone size={18} style={{ color: '#3b82f6' }} />
+              <h3>Farm Devices ({adminDevices.length})</h3>
             </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '4px 0 16px 0' }}>
+              {isSuperAdmin 
+                ? 'All devices in Supabase across all cloud platform IDs. You can force-release streams or revoke assignments.'
+                : `Devices connected to your persistent Platform ID (${effectivePlatformId || 'Unlinked'}).`}
+            </p>
 
-            <div className="settings-side-card">
-              <div className="form-card-header">
-                <UserPlus size={18} className="form-title-icon" />
-                <h3>Add User</h3>
-              </div>
-              <form onSubmit={handleCreateUser} className="settings-form">
-                <div className="settings-form-group">
-                  <label>Email Address</label>
-                  <input
-                    type="email"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    placeholder="name@domain.com"
-                    required
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>Password</label>
-                  <input
-                    type="password"
-                    value={userPassword}
-                    onChange={(e) => setUserPassword(e.target.value)}
-                    placeholder="Enter security password"
-                    required
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>Role</label>
-                  <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
-                    <option value="user">User</option>
-                    <option value="admin">Administrator</option>
-                    <option value="group_admin">Group Administrator</option>
-                    <option value="viewer">Viewer</option>
-                  </select>
-                </div>
-                <div className="settings-form-group">
-                  <label>Default Group Allocation</label>
-                  <select value={userGroup} onChange={(e) => setUserGroup(e.target.value)}>
-                    {groups.length === 0 ? (
-                      <option value="Public">Public</option>
-                    ) : (
-                      groups.map((g) => (
-                        <option key={g.id} value={g.name}>{g.name}</option>
-                      ))
-                    )}
-                  </select>
-                </div>
-                <button type="submit" className="settings-submit-btn" disabled={creatingUser}>
-                  {creatingUser ? 'Provisioning...' : 'Provision Account'}
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ─── GROUPS VIEW ─── */}
-        {activeSubTab === 'groups' && (
-          <div className="settings-grid-layout">
-            <div className="settings-main-card">
-              <div className="card-header-bar">
-                <h3>Logical Access Scopes</h3>
-                <span className="count-badge">{groups.length} groups</span>
-              </div>
-              {loadingGroups ? (
-                <div className="settings-spinner-wrapper"><span className="settings-spinner"></span></div>
-              ) : (
-                <div className="settings-table-wrapper">
-                  <table className="settings-table">
-                    <thead>
-                      <tr>
-                        <th>Group Name</th>
-                        <th>Description</th>
-                        <th>Group Admin</th>
-                        <th>Expiration Date</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groups.length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="empty-table-state">
-                            <Database size={24} />
-                            <p>No logical access groups found.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        groups.map((g) => {
-                          const expired = isGroupExpired(g);
-                          return (
-                            <tr key={g.id}>
-                              <td>
-                                <strong className="group-name-text">{g.name}</strong>
-                              </td>
-                              <td className="desc-col">{g.description || '—'}</td>
-                              <td>
-                                <span className="group-admin-badge">
-                                  {g.admin_email ? `👑 ${g.admin_email}` : (g.name === 'Public' ? 'Global' : 'Super Admin')}
-                                </span>
-                              </td>
-                              <td>
-                                <span className="expiry-display">
-                                  <Calendar size={13} className="cell-icon" />
-                                  <span>{formatDate(g.expires_at)}</span>
-                                </span>
-                              </td>
-                              <td>
-                                <span className={`status-badge ${expired ? 'expired' : 'active'}`}>
-                                  {expired ? 'Expired' : 'Active'}
-                                </span>
-                              </td>
-                              <td>
-                                <button
-                                  className="settings-action-btn danger-icon"
-                                  onClick={() => handleDeleteGroup(g.id, g.name)}
-                                  disabled={g.name === 'Public'}
-                                  title={g.name === 'Public' ? 'Default group is protected' : 'Delete Group'}
-                                >
-                                  <Trash2 size={14} />
-                                  <span>Delete</span>
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="settings-side-card">
-              <div className="form-card-header">
-                <FolderPlus size={18} className="form-title-icon" />
-                <h3>Create Group</h3>
-              </div>
-              <form onSubmit={handleCreateGroup} className="settings-form">
-                <div className="settings-form-group">
-                  <label>Group Name</label>
-                  <input
-                    type="text"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="e.g. QA-Automators"
-                    required
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>Description</label>
-                  <textarea
-                    value={groupDesc}
-                    onChange={(e) => setGroupDesc(e.target.value)}
-                    placeholder="Logical scope definition"
-                    rows="3"
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>Designated Group Admin</label>
-                  <select value={groupAdminId} onChange={(e) => setGroupAdminId(e.target.value)}>
-                    <option value="">None (Super Admin only)</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
-                    ))}
-                  </select>
-                  <small className="help-text">Assumes admin privileges only for this group and its devices</small>
-                </div>
-                <div className="settings-form-group">
-                  <label>Access Expiration</label>
-                  <input
-                    type="datetime-local"
-                    value={groupExpiry}
-                    onChange={(e) => setGroupExpiry(e.target.value)}
-                  />
-                  <small className="help-text">Leave blank for infinite access lifespans</small>
-                </div>
-                <button type="submit" className="settings-submit-btn" disabled={creatingGroup}>
-                  {creatingGroup ? 'Creating Group...' : 'Initialize Group'}
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ─── ALLOCATIONS VIEW ─── */}
-        {activeSubTab === 'allocations' && (
-          <div className="allocations-container">
-            <div className="group-selection-card">
-              <div className="selector-wrap">
-                <label>Target Group Scope:</label>
-                <select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
-                  <option value="">-- Choose Group --</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} {isGroupExpired(g) ? '(⚠️ Expired)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {selectedGroupId && (
-                <div className="active-group-indicator">
-                  <CheckCircle size={14} />
-                  <span>Configuring permissions for {groups.find(g => g.id === selectedGroupId)?.name}</span>
-                </div>
-              )}
-            </div>
-
-            {selectedGroupId ? (
-              <div className="allocations-subgrid">
-                {/* Users Allocation */}
-                <div className="allocation-card">
-                  <div className="card-header-bar">
-                    <h4>Mapped Users</h4>
-                    <span className="count-pill">{groupUsers.length}</span>
-                  </div>
-                  
-                  {loadingAllocations ? (
-                    <div className="settings-spinner-wrapper"><span className="settings-spinner"></span></div>
-                  ) : (
-                    <>
-                      <div className="allocation-list-wrap">
-                        {groupUsers.length === 0 ? (
-                          <div className="empty-allocation-li">
-                            <AlertCircle size={18} />
-                            <p>No members mapped to this group scope yet.</p>
-                          </div>
-                        ) : (
-                          <div className="alloc-list-inner">
-                            {groupUsers.map((u) => (
-                              <div key={u.id} className="allocation-list-item">
-                                <div className="alloc-item-info">
-                                  <Mail size={14} className="cell-icon" />
-                                  <span>{u.email}</span>
-                                </div>
-                                <button
-                                  className="alloc-remove-btn"
-                                  onClick={() => handleRemoveUserFromGroup(u.id)}
-                                  title="Revoke Group Membership"
-                                >
-                                  <UserMinus size={13} />
-                                  <span>Revoke</span>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      
-                      <form onSubmit={handleAddUserToGroup} className="allocation-form">
-                        <select
-                          value={allocateUserId}
-                          onChange={(e) => setAllocateUserId(e.target.value)}
-                          required
-                        >
-                          <option value="">Select user to add...</option>
-                          {users
-                            .filter((u) => !groupUsers.some((gu) => gu.id === u.id))
-                            .map((u) => (
-                              <option key={u.id} value={u.id}>{u.email}</option>
-                            ))}
-                        </select>
-                        <button type="submit" className="add-btn">
-                          <span>Map Member</span>
-                        </button>
-                      </form>
-                    </>
-                  )}
-                </div>
-
-                {/* Devices Allocation */}
-                <div className="allocation-card">
-                  <div className="card-header-bar">
-                    <h4>Allocated Hardware</h4>
-                    <span className="count-pill">{groupDeviceSerials.length}</span>
-                  </div>
-
-                  {loadingAllocations ? (
-                    <div className="settings-spinner-wrapper"><span className="settings-spinner"></span></div>
-                  ) : (
-                    <>
-                      <div className="allocation-list-wrap">
-                        {groupDeviceSerials.length === 0 ? (
-                          <div className="empty-allocation-li">
-                            <Smartphone size={18} />
-                            <p>No smartphone hardware mapped to this scope.</p>
-                          </div>
-                        ) : (
-                          <div className="alloc-list-inner">
-                            {groupDeviceSerials.map((item) => {
-                              const serial = typeof item === 'string' ? item : item.serial;
-                              const assignedUserId = typeof item === 'object' ? item.allocated_to_user_id : null;
-                              const d = allDevices.find((dev) => dev.serial === serial);
-                              return (
-                                <div key={serial} className="allocation-list-item allocation-device-item">
-                                  <div className="alloc-item-info">
-                                    <Smartphone size={14} className="cell-icon" />
-                                    <div className="alloc-device-text">
-                                      <span className="dev-name">{d ? `${d.manufacturer} ${d.model}` : 'Hardware Endpoint'}</span>
-                                      <small className="serial-meta">{serial}</small>
-                                    </div>
-                                  </div>
-
-                                  {/* Direct Member Assignment Dropdown */}
-                                  <div className="alloc-member-assignment">
-                                    <select
-                                      value={assignedUserId || ''}
-                                      onChange={(e) => handleAssignDeviceToUser(serial, e.target.value)}
-                                      className="device-assign-dropdown"
-                                      title="Assign this device to a specific group member"
-                                    >
-                                      <option value="">👥 Shared (All Group Members)</option>
-                                      {groupUsers.map((u) => (
-                                        <option key={u.id} value={u.id}>
-                                          👤 Only: {u.email}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  {isSuperAdmin && (
-                                    <button
-                                      className="alloc-remove-btn"
-                                      onClick={() => handleRemoveDeviceFromGroup(serial)}
-                                      title="Deallocate device from group"
-                                    >
-                                      <UserMinus size={13} />
-                                      <span>Revoke</span>
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      {isSuperAdmin ? (
-                        <form onSubmit={handleAddDeviceToGroup} className="allocation-form">
-                          <select
-                            value={allocateSerial}
-                            onChange={(e) => setAllocateSerial(e.target.value)}
-                            required
-                          >
-                            <option value="">Select device from fleet to allocate...</option>
-                            {allDevices
-                              .filter((d) => !groupDeviceSerials.some((item) => (typeof item === 'string' ? item : item.serial) === d.serial))
-                              .map((d) => (
-                                <option key={d.serial} value={d.serial}>
-                                  {d.manufacturer} {d.model} ({d.serial})
-                                </option>
-                              ))}
-                          </select>
-                          <button type="submit" className="add-btn">
-                            <span>Allocate to Group</span>
-                          </button>
-                        </form>
-                      ) : (
-                        <div className="group-admin-notice">
-                          <ShieldAlert size={15} />
-                          <span>Hardware devices are allocated to groups by the Super Admin (sammyseth260@gmail.com). As Group Admin, you can assign the hardware devices above to specific group members.</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+            {adminDevices.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No devices found for Platform ID <code>{effectivePlatformId || 'None'}</code>.<br />
+                Ensure your device is connected via USB and <code>start.bat</code> is running on your machine.
               </div>
             ) : (
-              <div className="group-unselected-state">
-                <Database size={40} />
-                <h4>No Scope Selected</h4>
-                <p>Please choose a target group scope above to adjust user memberships and allocate hardware endpoints.</p>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="enterprise-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '12px' }}>
+                      <th style={{ padding: '12px 16px' }}>Device</th>
+                      <th style={{ padding: '12px 16px' }}>Serial</th>
+                      <th style={{ padding: '12px 16px' }}>Platform ID</th>
+                      <th style={{ padding: '12px 16px' }}>Status</th>
+                      <th style={{ padding: '12px 16px' }}>Assigned To</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminDevices.map(d => {
+                      const assignedUser = (users || []).find(u => u.id === d.allocated_to_user_id);
+
+                      return (
+                        <tr key={d.serial} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+                          <td style={{ padding: '14px 16px', fontWeight: 600, color: '#f8fafc' }}>
+                            {d.model || 'Android Device'}
+                          </td>
+                          <td style={{ padding: '14px 16px', fontFamily: 'monospace', color: '#94a3b8' }}>
+                            {d.serial}
+                          </td>
+                          <td style={{ padding: '14px 16px', fontFamily: 'monospace', color: '#60a5fa' }}>
+                            {d.platform_id || 'unassigned'}
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <span style={{ 
+                              padding: '3px 8px', 
+                              borderRadius: '4px', 
+                              fontSize: '11px', 
+                              fontWeight: 600,
+                              background: d.status === 'claimed' ? 'rgba(59, 130, 246, 0.15)' : d.status === 'idle' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                              color: d.status === 'claimed' ? '#60a5fa' : d.status === 'idle' ? '#10b981' : '#94a3b8'
+                            }}>
+                              {d.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            {assignedUser ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#f8fafc' }}>
+                                <span>{assignedUser.email}</span>
+                                <button 
+                                  onClick={() => handleRevokeDevice(d.serial)} 
+                                  title="Revoke assignment"
+                                  style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>Unassigned (Public)</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleForceReleaseStream(d.serial)}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                background: 'rgba(239, 68, 68, 0.1)',
+                                color: '#ef4444',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              Release Stream
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
