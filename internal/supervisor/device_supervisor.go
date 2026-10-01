@@ -187,38 +187,30 @@ func (ds *DeviceSupervisor) Claim(ctx context.Context, claimedBy string) (string
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	if ds.state == StateClaimed {
-		return ds.sessionID, nil
-	}
-
-	if ds.state != StateIdle {
-		return "", fmt.Errorf("device %s is not idle (current state: %s)", ds.device.Serial, ds.state)
-	}
-
-	sessionID := uuid.New().String()
-	old := ds.state
-
-	// Start screen stream capture.
+	// Ensure screen stream capture is active on ds.port
 	if err := ds.streams.StartCapture(ctx, ds.device.Serial, ds.port); err != nil {
-		return "", fmt.Errorf("device supervisor: start capture failed: %w", err)
+		slog.Warn("device supervisor: start capture failed", "serial", ds.device.Serial, "err", err)
 	}
 
+	if ds.sessionID == "" {
+		ds.sessionID = uuid.New().String()
+	}
+	old := ds.state
 	ds.state = StateClaimed
-	ds.sessionID = sessionID
 
 	ds.emit(SupervisorEvent{
 		Serial:    ds.device.Serial,
 		OldState:  old,
 		NewState:  StateClaimed,
-		SessionID: sessionID,
+		SessionID: ds.sessionID,
 	})
 
 	slog.Info("device supervisor: claimed",
 		"serial", ds.device.Serial,
-		"session", sessionID,
+		"session", ds.sessionID,
 		"by", claimedBy,
 	)
-	return sessionID, nil
+	return ds.sessionID, nil
 }
 
 // Activate transitions the device from Claimed → Busy.

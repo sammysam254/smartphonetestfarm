@@ -302,7 +302,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (currentPath.startsWith('/device/') && activeDevice && activeDevice.status === 'idle') {
+    if (currentPath.startsWith('/device/') && activeDevice) {
       if (lastClaimedPath.current !== currentPath) {
         lastClaimedPath.current = currentPath;
         handleClaim(activeDevice);
@@ -310,7 +310,7 @@ function App() {
     } else if (!currentPath.startsWith('/device/')) {
       lastClaimedPath.current = '';
     }
-  }, [currentPath, activeDevice?.status]);
+  }, [currentPath, activeDevice?.serial]);
 
   const handleRelease = async (serial) => {
     try {

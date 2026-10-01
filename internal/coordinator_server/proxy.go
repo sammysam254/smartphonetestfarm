@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -73,7 +74,21 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 		host = "127.0.0.1"
 	}
 
-	if device.StreamPort <= 0 {
+	// Verify if the stream server is currently reachable on host:device.StreamPort.
+	// If not reachable (e.g. device was not claimed yet, or provider just started),
+	// automatically call autoClaimDevice to trigger StartCapture!
+	needClaim := device.StreamPort <= 0
+	if !needClaim {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, device.StreamPort), 250*time.Millisecond)
+		if err != nil {
+			needClaim = true
+		} else {
+			conn.Close()
+		}
+	}
+
+	if needClaim {
+		slog.Info("coordinator: stream port not reachable, auto-starting capture via provider", "serial", serial)
 		port, claimErr := s.autoClaimDevice(r.Context(), serial)
 		if claimErr != nil {
 			slog.Warn("coordinator: auto-claim failed during stream proxy", "serial", serial, "err", claimErr)
