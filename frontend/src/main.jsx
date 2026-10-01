@@ -30,8 +30,8 @@ window.fetch = async function (url, options = {}) {
 
   const response = await originalFetch(url, options);
 
-  // Clear token and notify app if the session is unauthorized/expired (excluding the login request itself)
-  if (response.status === 401 && !url.toString().includes('/api/v1/auth/login')) {
+  // Clear token and notify app only if local session is unauthorized/expired (and not using Supabase Auth)
+  if (response.status === 401 && !SUPABASE_ENABLED && !url.toString().includes('/api/v1/auth/login')) {
     localStorage.removeItem('token');
     window.dispatchEvent(new Event('auth-unauthorized'));
   }

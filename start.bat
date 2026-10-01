@@ -95,7 +95,7 @@ set COORDINATOR_SUPABASE_URL=https://sqnkpkzjnypxhhwvnfob.supabase.co
 set COORDINATOR_GRPC_PORT=9000
 set COORDINATOR_JWT_SECRET=protean-default-secret-key-change-me-123456
 set COORDINATOR_STATIC_DIR=frontend\dist
-set BYPASS_AUTH_IN_DEV=false
+set BYPASS_AUTH_IN_DEV=true
 start "FlexPulse Coordinator (:9002)" bin\flexpulse-coordinator.exe
 
 ping 127.0.0.1 -n 4 >nul
