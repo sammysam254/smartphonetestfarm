@@ -187,6 +187,10 @@ func (ds *DeviceSupervisor) Claim(ctx context.Context, claimedBy string) (string
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
+	if ds.state == StateClaimed {
+		return ds.sessionID, nil
+	}
+
 	if ds.state != StateIdle {
 		return "", fmt.Errorf("device %s is not idle (current state: %s)", ds.device.Serial, ds.state)
 	}

@@ -970,3 +970,24 @@
   font-family: monospace;
 }
 
+@media (max-width: 768px) {
+  .settings-panel {
+    padding: 12px;
+  }
+  .settings-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px;
+    gap: 16px;
+  }
+  .admin-stats-grid {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .admin-stat-card {
+    flex: 1;
+    min-width: 120px;
+    padding: 10px 14px;
+  }
+}
+

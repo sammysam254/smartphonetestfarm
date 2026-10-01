@@ -144,3 +144,32 @@
   border-color: var(--red);
 }
 
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+    height: 54px;
+    gap: 8px;
+  }
+  .header-title {
+    font-size: 16px;
+  }
+  .header-nav {
+    margin-left: 8px;
+    padding: 2px;
+  }
+  .header-nav-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .header-actions {
+    gap: 6px;
+  }
+  .tunnel-config-btn span, .theme-toggle-btn span, .logout-btn span {
+    display: none;
+  }
+  .tunnel-config-btn, .theme-toggle-btn, .logout-btn {
+    padding: 6px;
+    border-radius: 50%;
+  }
+}
+

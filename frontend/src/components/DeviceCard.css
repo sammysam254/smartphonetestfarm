@@ -135,3 +135,17 @@
   box-shadow: none;
   transform: scale(0.98);
 }
+
+@media (max-width: 600px) {
+  .device-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .device-card-minimal {
+    padding: 12px;
+    min-height: 160px;
+  }
+  .device-model {
+    font-size: 13px;
+  }
+}

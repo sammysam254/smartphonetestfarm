@@ -44,3 +44,21 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+@media (max-width: 768px) {
+  .stats-bar {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    min-width: 130px;
+    padding: 12px 14px;
+  }
+  .stat-value {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .stat-label {
+    font-size: 10px;
+  }
+}

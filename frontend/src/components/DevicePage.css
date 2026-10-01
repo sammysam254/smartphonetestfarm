@@ -1009,25 +1009,63 @@
 
 @media (max-width: 768px) {
   .device-page {
-    grid-template-columns: 1fr;
-    height: auto;
-    overflow: visible;
+    height: calc(100vh - 56px);
+    overflow-y: auto;
   }
-  .screen-column {
-    height: 60vh;
+  .stream-window-bar {
+    padding: 6px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  .details-column {
-    height: auto;
-    overflow: visible;
+  .stream-bar-left {
+    gap: 8px;
   }
-  .tabs-shell {
-    align-items: flex-start;
+  .stream-title-text {
+    font-size: 13px;
   }
-  .spec-grid {
-    grid-template-columns: 1fr;
+  .stream-model-sub {
+    display: none;
   }
-  .hero-card-title {
+  .stream-centered-container {
+    padding: 8px;
     flex-direction: column;
+  }
+  .phone-dock-assembly {
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+  .phone-mockup-centered {
+    border-width: 2px;
+    border-radius: 24px;
+    padding: 6px;
+    max-width: 94vw;
+    max-height: 58vh;
+  }
+  .docked-controls-sidebar {
+    flex-direction: row;
+    width: auto;
+    max-width: 96vw;
+    overflow-x: auto;
+    border-radius: 24px;
+    padding: 6px 10px;
+    gap: 4px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+  }
+  .dock-separator {
+    width: 1px;
+    height: 24px;
+    margin: 0 4px;
+  }
+  .dock-vol-track {
+    width: 40px;
+    height: 6px;
+  }
+  .dock-vol-fill {
+    height: 100% !important;
+  }
+  .dock-volume-group {
+    flex-direction: row;
   }
 }
 

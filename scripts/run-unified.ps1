@@ -1,7 +1,7 @@
 # scripts/run-unified.ps1
 # Unified FlexPulse Farm Runner
 # Runs Coordinator, Provider, and Cloudflare Tunnel concurrently in ONE single console window
-# with live interleaved log streaming and automatic Supabase cloud synchronization.
+# with live interleaved log streaming, auto-dependency download, and automatic Supabase cloud synchronization.
 
 param(
     [string]$Target = "http://localhost:9002",
@@ -30,6 +30,20 @@ if (-not (Test-Path $platformIdFile)) {
     $platformId = (Get-Content $platformIdFile).Trim()
 }
 
+# Auto-register valid platform ID in Supabase
+try {
+    $headers = @{
+        "apikey" = $SupabaseAnonKey
+        "Authorization" = "Bearer $SupabaseAnonKey"
+        "Content-Type" = "application/json"
+        "Prefer" = "resolution=merge-duplicates"
+    }
+    $regPayload = @(
+        @{ key = "valid_platform_$platformId"; value = "registered_$env:COMPUTERNAME" }
+    ) | ConvertTo-Json
+    Invoke-RestMethod -Uri "$SupabaseUrl/rest/v1/farm_config" -Method Post -Headers $headers -Body $regPayload -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
+} catch {}
+
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host "              FlexPulse Mobile Device Farm Host                    " -ForegroundColor Cyan
 Write-Host "===================================================================" -ForegroundColor Cyan
@@ -41,12 +55,29 @@ Write-Host "  to link and verify this computer's devices!" -ForegroundColor Gray
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 4. Check ADB toolchain & attached smartphones
+# 4. Check & Auto-Download ADB toolchain
 $adbCmd = Get-Command adb -ErrorAction SilentlyContinue
 if (-not $adbCmd) {
     $toolsAdb = Join-Path $WorkspaceRoot ".tools\platform-tools\adb.exe"
     if (Test-Path $toolsAdb) {
         $env:PATH = (Split-Path $toolsAdb) + ";" + $env:PATH
+    } else {
+        Write-Host "[*] ADB not found. Downloading Google Platform Tools..." -ForegroundColor Yellow
+        $toolsDir = Join-Path $WorkspaceRoot ".tools"
+        New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+        $zipPath = Join-Path $toolsDir "platform-tools.zip"
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile $zipPath -UseBasicParsing
+            Expand-Archive -Path $zipPath -DestinationPath $toolsDir -Force
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            if (Test-Path $toolsAdb) {
+                $env:PATH = (Split-Path $toolsAdb) + ";" + $env:PATH
+                Write-Host "[SUCCESS] ADB downloaded successfully!" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "[!] Warning: Could not auto-download ADB: $_" -ForegroundColor Yellow
+        }
     }
 }
 $adbCmd = Get-Command adb -ErrorAction SilentlyContinue
@@ -55,16 +86,33 @@ if ($adbCmd) {
     Write-Host "[*] Connected Physical Smartphones:" -ForegroundColor Green
     & adb devices -l | Out-String | Write-Host -ForegroundColor Gray
 } else {
-    Write-Host "[!] Warning: 'adb' tool was not found on PATH." -ForegroundColor Yellow
+    Write-Host "[!] Warning: 'adb' tool was not found." -ForegroundColor Yellow
 }
 
-# 5. Check Cloudflared
+# 5. Check & Auto-Download Cloudflared
 $cloudflaredCmd = Get-Command cloudflared -ErrorAction SilentlyContinue
 if (-not $cloudflaredCmd) {
-    Write-Host "[!] 'cloudflared' not found. Installing via winget..." -ForegroundColor Yellow
-    winget install --id Cloudflare.cloudflared --silent --accept-package-agreements --accept-source-agreements
-    $cloudflaredCmd = Get-Command cloudflared -ErrorAction SilentlyContinue
+    $toolsCloudflared = Join-Path $WorkspaceRoot ".tools\cloudflared.exe"
+    if (Test-Path $toolsCloudflared) {
+        $env:PATH = (Split-Path $toolsCloudflared) + ";" + $env:PATH
+    } else {
+        Write-Host "[*] Cloudflared not found. Downloading binary..." -ForegroundColor Yellow
+        $toolsDir = Join-Path $WorkspaceRoot ".tools"
+        New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $toolsCloudflared -UseBasicParsing
+            if (Test-Path $toolsCloudflared) {
+                $env:PATH = $toolsDir + ";" + $env:PATH
+                Write-Host "[SUCCESS] Cloudflared downloaded successfully!" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "[!] Installing cloudflared via winget..." -ForegroundColor Yellow
+            winget install --id Cloudflare.cloudflared --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        }
+    }
 }
+$cloudflaredCmd = Get-Command cloudflared -ErrorAction SilentlyContinue
 
 # 6. Set Environment Variables for Farm Coordinator
 $env:COORDINATOR_POSTGRES_URI = $PostgresUri
@@ -75,13 +123,24 @@ $env:COORDINATOR_STATIC_DIR = Join-Path $WorkspaceRoot "frontend\dist"
 $env:BYPASS_AUTH_IN_DEV = "true"
 $env:PLATFORM_ID = $platformId
 
-Write-Host "[*] Starting Coordinator and Provider in ONE single console..." -ForegroundColor Cyan
-Write-Host "[*] Live logs from all services will appear below." -ForegroundColor DarkGray
-Write-Host ""
-
 $coordExe = Join-Path $WorkspaceRoot "bin\flexpulse-coordinator.exe"
 $provExe = Join-Path $WorkspaceRoot "bin\flexpulse-provider.exe"
 $provConfig = Join-Path $WorkspaceRoot "config\provider.yaml"
+
+# Auto-compile binaries if missing and Go is available
+if ((-not (Test-Path $coordExe)) -or (-not (Test-Path $provExe))) {
+    $goCmd = Get-Command go -ErrorAction SilentlyContinue
+    if ($goCmd) {
+        Write-Host "[*] Compiling FlexPulse Go binaries..." -ForegroundColor Cyan
+        New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceRoot "bin") | Out-Null
+        if (-not (Test-Path $coordExe)) {
+            & go build -buildvcs=false -ldflags "-s -w" -o $coordExe .\cmd\coordinator
+        }
+        if (-not (Test-Path $provExe)) {
+            & go build -buildvcs=false -ldflags "-s -w" -o $provExe .\cmd\provider
+        }
+    }
+}
 
 if (-not (Test-Path $coordExe)) {
     Write-Host "[x] Error: Coordinator binary missing at $coordExe" -ForegroundColor Red
@@ -91,6 +150,10 @@ if (-not (Test-Path $provExe)) {
     Write-Host "[x] Error: Provider binary missing at $provExe" -ForegroundColor Red
     exit 1
 }
+
+Write-Host "[*] Starting Coordinator and Provider in ONE single console..." -ForegroundColor Cyan
+Write-Host "[*] Live logs from all services will appear below." -ForegroundColor DarkGray
+Write-Host ""
 
 # Launch Coordinator first in current console window
 $coordProc = Start-Process -FilePath $coordExe -WorkingDirectory $WorkspaceRoot -NoNewWindow -PassThru
@@ -147,13 +210,29 @@ try {
                     $sbPayload = $sbList | ConvertTo-Json
                     Invoke-RestMethod -Uri "$SupabaseUrl/rest/v1/farm_config" -Method Post -Headers $headers -Body $sbPayload -TimeoutSec 10 -ErrorAction SilentlyContinue | Out-Null
 
-                    # Also patch devices with this platform_id
-                    $devPayload = @{ provider_ip = $tunnelUrl } | ConvertTo-Json
+                    # Patch devices to associate with this platform_id
+                    $devPayload = @{ platform_id = $platformId } | ConvertTo-Json
                     Invoke-RestMethod -Uri "$SupabaseUrl/rest/v1/devices?platform_id=eq.$platformId" -Method Patch -Headers $headers -Body $devPayload -TimeoutSec 10 -ErrorAction SilentlyContinue | Out-Null
                 } catch {}
 
-                Write-Host " [*] Netlify dashboard is now connected: https://vertextstreams.netlify.app" -ForegroundColor Green
-                Write-Host " [*] Platform ID: $platformId" -ForegroundColor Yellow
+                Write-Host " [*] Netlify dashboard: https://vertextstreams.netlify.app" -ForegroundColor Green
+                Write-Host " [*] Platform ID:       $platformId" -ForegroundColor Yellow
+                Write-Host " [*] Device Stream Links:" -ForegroundColor Cyan
+
+                if ($adbCmd) {
+                    $devOutput = & adb devices -l | Out-String
+                    $devLines = $devOutput.Split("`n") | Where-Object { $_ -match "\tdevice" }
+                    foreach ($dl in $devLines) {
+                        $parts = $dl.Trim() -split "\s+"
+                        if ($parts.Length -gt 0) {
+                            $ser = $parts[0]
+                            Write-Host "     -> Device [$ser]:" -ForegroundColor White
+                            Write-Host "        Web Stream:   https://vertextstreams.netlify.app/device/$ser" -ForegroundColor Green
+                            Write-Host "        Tunnel API:   $tunnelUrl/api/v1/devices/$ser/ws" -ForegroundColor DarkGray
+                        }
+                    }
+                }
+
                 Write-Host "===================================================================" -ForegroundColor Green
                 Write-Host ""
             }

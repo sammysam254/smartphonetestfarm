@@ -19,12 +19,16 @@
 package coordinator_server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
+
+	providerpb "protean-provider/pkg/protocol/provider"
 )
 
 // streamProxySubpaths are the device stream endpoints exposed through the
@@ -59,14 +63,29 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if device.StreamPort <= 0 || device.ProviderID == "" {
-		http.Error(w, "no active stream for this device (claim it first)", http.StatusConflict)
-		return
+	host := device.ProviderID
+	if strings.Contains(host, "://") {
+		if u, err := url.Parse(host); err == nil {
+			host = u.Hostname()
+		}
+	}
+	if host == "" || strings.Contains(host, "trycloudflare.com") || strings.Contains(host, "netlify.app") {
+		host = "127.0.0.1"
+	}
+
+	if device.StreamPort <= 0 {
+		port, claimErr := s.autoClaimDevice(r.Context(), serial)
+		if claimErr != nil {
+			slog.Warn("coordinator: auto-claim failed during stream proxy", "serial", serial, "err", claimErr)
+			http.Error(w, fmt.Sprintf("no active stream for %s (claim failed: %v)", serial, claimErr), http.StatusConflict)
+			return
+		}
+		device.StreamPort = port
 	}
 
 	target := &url.URL{
 		Scheme: "http",
-		Host:   fmt.Sprintf("%s:%d", device.ProviderID, device.StreamPort),
+		Host:   fmt.Sprintf("%s:%d", host, device.StreamPort),
 	}
 
 	proxy := &httputil.ReverseProxy{
@@ -110,4 +129,44 @@ func streamSubpathFromPath(p string) string {
 		return trimmed[i+1:]
 	}
 	return ""
+}
+
+// autoClaimDevice automatically invokes provider ClaimDevice gRPC call
+// to start scrcpy stream if device port is not active.
+func (s *Server) autoClaimDevice(ctx context.Context, serial string) (int, error) {
+	providerIP, _, err := s.db.GetDeviceProvider(serial)
+	if err != nil {
+		providerIP = "127.0.0.1"
+	}
+	if strings.Contains(providerIP, "://") {
+		if u, err := url.Parse(providerIP); err == nil {
+			providerIP = u.Hostname()
+		}
+	}
+	if providerIP == "" || strings.Contains(providerIP, "trycloudflare.com") || strings.Contains(providerIP, "netlify.app") {
+		providerIP = "127.0.0.1"
+	}
+
+	pClient, conn, err := s.getProviderClient(providerIP, 9091)
+	if err != nil {
+		return 0, fmt.Errorf("connect provider: %w", err)
+	}
+	defer conn.Close()
+
+	cCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	resp, err := pClient.ClaimDevice(cCtx, &providerpb.ClaimDeviceRequest{
+		Serial:    serial,
+		ClaimedBy: "auto-stream",
+	})
+	if err != nil {
+		return 0, fmt.Errorf("claim rpc: %w", err)
+	}
+	if !resp.Success {
+		return 0, fmt.Errorf("claim rejected: %s", resp.Message)
+	}
+
+	_ = s.db.UpdateDeviceStreamPort(serial, int(resp.Port))
+	return int(resp.Port), nil
 }

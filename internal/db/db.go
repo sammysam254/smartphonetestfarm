@@ -357,13 +357,12 @@ func (d *DB) CreateSession(sessionID, serial, claimedBy string) error {
 	if err != nil {
 		return fmt.Errorf("device check: %w", err)
 	}
-	if status == "claimed" {
-		return fmt.Errorf("device is already claimed")
-	}
-
-	_, err = tx.Exec("UPDATE devices SET status = 'claimed', updated_at = NOW() WHERE serial = $1", serial)
-	if err != nil {
-		return err
+	// If already claimed, allow session refresh / reconnect
+	if status != "claimed" {
+		_, err = tx.Exec("UPDATE devices SET status = 'claimed', updated_at = NOW() WHERE serial = $1", serial)
+		if err != nil {
+			return err
+		}
 	}
 
 	_, err = tx.Exec("INSERT INTO sessions (id, serial, claimed_by, claimed_at, status) VALUES ($1, $2, $3, NOW(), 'active')", sessionID, serial, claimedBy)
