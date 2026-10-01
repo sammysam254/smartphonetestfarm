@@ -20,9 +20,19 @@ type Config struct {
 	Coordinator CoordinatorConfig `mapstructure:"coordinator"`
 	ADB         ADBConfig         `mapstructure:"adb"`
 	Stream      StreamConfig      `mapstructure:"stream"`
+	Agent       AgentConfig       `mapstructure:"agent"`
 	Metrics     MetricsConfig     `mapstructure:"metrics"`
 	GRPCServer  GRPCServerConfig  `mapstructure:"grpc_server"`
 	Logging     LoggingConfig     `mapstructure:"logging"`
+}
+
+// AgentConfig controls the on-device FlexPulse agent (APK install, background
+// service, accessibility service). Disabling keeps screen streaming and input
+// working (scrcpy only) and leaves no installed app on the phone — useful when
+// devices must look untouched, e.g. when running third-party survey apps whose
+// anti-fraud checks flag accessibility services or sideloaded packages.
+type AgentConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // ProviderConfig describes this provider instance.
@@ -115,6 +125,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("stream.quality", 80)
 	v.SetDefault("stream.max_fps", 15)
 	v.SetDefault("stream.max_restarts", 3)
+	v.SetDefault("agent.enabled", true)
 	v.SetDefault("metrics.enabled", true)
 	v.SetDefault("metrics.port", 9090)
 	v.SetDefault("metrics.path", "/metrics")

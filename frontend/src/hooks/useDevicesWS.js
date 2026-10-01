@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-
-const COORDINATOR_API = import.meta.env.VITE_COORDINATOR_API || `${window.location.protocol}//${window.location.hostname}:9002`;
+import { COORDINATOR_API } from '../lib/config';
 
 export function useDevicesWS(token) {
   const [devices, setDevices] = useState([]);

@@ -7,9 +7,11 @@ package auth
 
 import (
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"sync"
 	"time"
@@ -185,14 +187,8 @@ func (m *JWTManager) fetchJWKS() error {
 		if key.Kty != "RSA" {
 			continue
 		}
-		// Convert JWK to rsa.PublicKey
-		if len(key.X5c) > 0 {
-			// Parsing using the first certificate in X5c
-			certStr := fmt.Sprintf("-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----", key.X5c[0])
-			block, err := jwt.ParseRSAPublicKeyFromPEM([]byte(certStr))
-			if err == nil {
-				newCache[key.Kid] = block
-			}
+		if pub, err := jwkToPublicKey(key); err == nil {
+			newCache[key.Kid] = pub
 		}
 	}
 
@@ -203,4 +199,44 @@ func (m *JWTManager) fetchJWKS() error {
 	m.jwkCache = newCache
 	m.lastFetch = time.Now()
 	return nil
+}
+
+// jwkToPublicKey converts a JSON Web Key to an RSA public key.
+// It supports both the x5c certificate chain form (e.g. Auth0, Keycloak)
+// and the raw modulus/exponent form (e.g. Supabase, AWS Cognito, Google).
+func jwkToPublicKey(key JWK) (*rsa.PublicKey, error) {
+	// 1. Preferred: parse from the X.509 certificate chain.
+	if len(key.X5c) > 0 && key.X5c[0] != "" {
+		certStr := fmt.Sprintf("-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----", key.X5c[0])
+		if pub, err := jwt.ParseRSAPublicKeyFromPEM([]byte(certStr)); err == nil {
+			return pub, nil
+		}
+	}
+
+	// 2. Fallback: build from the base64url-encoded modulus (n) and exponent (e).
+	if key.N == "" || key.E == "" {
+		return nil, errors.New("jwk has neither x5c nor n/e material")
+	}
+
+	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
+	if err != nil {
+		return nil, fmt.Errorf("decode jwk modulus: %w", err)
+	}
+	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
+	if err != nil {
+		return nil, fmt.Errorf("decode jwk exponent: %w", err)
+	}
+
+	exponent := 0
+	for _, b := range eBytes {
+		exponent = exponent<<8 | int(b)
+	}
+	if exponent < 3 || exponent%2 == 0 {
+		return nil, fmt.Errorf("invalid jwk exponent: %d", exponent)
+	}
+
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: exponent,
+	}, nil
 }

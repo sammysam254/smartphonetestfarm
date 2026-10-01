@@ -15,7 +15,7 @@ import (
 
 // DeployAgent installs the APK and starts the background service with the correct ADB serial and port
 func DeployAgent(deviceSerial string, port int) error {
-	apkPath := "assets/protean-agent.apk"
+	apkPath := "assets/flexpulse-agent.apk"
 
 	packageName := "com.protean.agent"
 

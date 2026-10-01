@@ -8,7 +8,10 @@
 provider:
   name: "lab-provider-01"
   host: "provider-host.local"
-  ip: ""          # leave empty for auto-detection (Phase 4)
+  # Pin the advertised IP when the coordinator runs on the same PC: leaving
+  # this empty auto-detects the default-route adapter, which can pick a VPN/
+  # Tailscale address and break the coordinator→provider and stream proxy hops.
+  ip: "127.0.0.1"
   min_port: 7400
   max_port: 7700
 
@@ -34,6 +37,16 @@ stream:
   quality:      80
   max_fps:      15
   max_restarts: 3
+
+# On-device FlexPulse agent: installs assets/flexpulse-agent.apk, runs a
+# background service and an accessibility service (used for advanced
+# automation like app-aware recording and the file explorer).
+# false = phone stays untouched (no sideloaded app, no accessibility service);
+# screen streaming, touch/keyboard input and audio still work via scrcpy.
+# Recommended: keep false when running third-party survey apps whose
+# anti-fraud checks may flag accessibility services or unknown packages.
+agent:
+  enabled: false
 
 metrics:
   enabled: true

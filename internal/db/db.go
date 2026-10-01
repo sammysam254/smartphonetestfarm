@@ -551,6 +551,16 @@ func (d *DB) UpdateUserRole(id string, role domain.UserRole) error {
 	return nil
 }
 
+// UpdateUserAuthProvider switches which identity provider owns a user's
+// authentication (e.g. "local" → "supabase" when an external OIDC login is
+// first seen for an existing email). The local password hash is preserved so
+// reverting to password login stays possible.
+func (d *DB) UpdateUserAuthProvider(id, provider string) error {
+	query := `UPDATE users SET auth_provider = $1, updated_at = NOW() WHERE id = $2`
+	_, err := d.db.Exec(query, provider, id)
+	return err
+}
+
 // DeleteUser deletes the user.
 func (d *DB) DeleteUser(id string) error {
 	query := `DELETE FROM users WHERE id = $1`

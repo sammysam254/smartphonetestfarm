@@ -1,6 +1,6 @@
-# Mobile Device Farm
+# FlexPulse — Mobile Device Farm
 
-A high-performance, containerized, self-hosted Mobile Device Farm for real-time remote control, screen streaming, and native test automation of physical Android and iOS devices.
+A high-performance, self-hosted Mobile Device Farm for real-time remote control, screen streaming (with audio), and native test automation of physical Android and iOS devices.
 
 ---
 

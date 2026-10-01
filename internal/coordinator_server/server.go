@@ -76,6 +76,17 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/devices", s.handleListDevices)
 	mux.HandleFunc("/api/v1/devices/ws", s.handleWS)
 	mux.HandleFunc("/api/v1/devices/", s.handleDeviceAction)
+
+	// Reverse-proxy device stream endpoints (video WS, uploads, state) so
+	// remote/tunnelled browsers only need this single port.
+	s.registerStreamProxyRoutes(mux)
+
+	// Liveness probe (also usable as the Cloudflare Tunnel health check and
+	// by setup scripts to wait for readiness). Excluded from auth middleware.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 	mux.HandleFunc("/api/v1/automation/scripts", s.handleScripts)
 	mux.HandleFunc("/api/v1/automation/scripts/", s.handleScriptByID)
 	mux.HandleFunc("/api/v1/automation/run", s.handleRunScript)
@@ -123,6 +134,14 @@ func (s *Server) Start() error {
 
 	// Register auth HTTP endpoints
 	s.authService.RegisterHandlers(mux)
+
+	// Optional: serve the built frontend (frontend/dist) from the same port.
+	// Registered last as the "/" catch-all — every other pattern above is more
+	// specific, so API routes always win.
+	if s.cfg.StaticDir != "" {
+		mux.Handle("/", newSPAHandler(s.cfg.StaticDir))
+		slog.Info("coordinator: serving frontend", "dir", s.cfg.StaticDir)
+	}
 
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", httpPort),

@@ -22,10 +22,11 @@ const eventBufferSize = 128
 
 // Supervisor manages all per-device supervisors.
 type Supervisor struct {
-	providerID string
-	adbClient  adb.Client
-	ports      *PortAllocator
-	streams    domain.StreamManager
+	providerID   string
+	adbClient    adb.Client
+	ports        *PortAllocator
+	streams      domain.StreamManager
+	agentEnabled bool
 
 	mu      sync.RWMutex
 	devices map[string]*DeviceSupervisor // serial → supervisor
@@ -35,8 +36,10 @@ type Supervisor struct {
 	events chan SupervisorEvent
 }
 
-// New creates a Supervisor.
-func New(ctx context.Context, providerID string, adbClient adb.Client, minPort, maxPort int, streams domain.StreamManager) (*Supervisor, error) {
+// New creates a Supervisor. agentEnabled=false skips the on-device agent
+// entirely (no APK install, no accessibility service) — streaming and input
+// keep working since they only rely on scrcpy.
+func New(ctx context.Context, providerID string, adbClient adb.Client, minPort, maxPort int, streams domain.StreamManager, agentEnabled bool) (*Supervisor, error) {
 	ports, err := NewPortAllocator(ctx, minPort, maxPort)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: %w", err)
@@ -44,13 +47,14 @@ func New(ctx context.Context, providerID string, adbClient adb.Client, minPort, 
 
 	events := make(chan SupervisorEvent, eventBufferSize)
 	s := &Supervisor{
-		providerID: providerID,
-		adbClient:  adbClient,
-		ports:      ports,
-		streams:    streams,
-		devices:    make(map[string]*DeviceSupervisor),
-		events:     events,
-		Events:     events,
+		providerID:   providerID,
+		adbClient:    adbClient,
+		ports:        ports,
+		streams:      streams,
+		agentEnabled: agentEnabled,
+		devices:      make(map[string]*DeviceSupervisor),
+		events:       events,
+		Events:       events,
 	}
 	return s, nil
 }
@@ -67,7 +71,7 @@ func (s *Supervisor) OnDeviceConnected(ctx context.Context, device *domain.Devic
 		return nil
 	}
 
-	ds := newDeviceSupervisor(device, s.providerID, s.adbClient, s.ports, s.events, s.streams)
+	ds := newDeviceSupervisor(device, s.providerID, s.adbClient, s.ports, s.events, s.streams, s.agentEnabled)
 	s.devices[device.Serial] = ds
 
 	go ds.Run(ctx)

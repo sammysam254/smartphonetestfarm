@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Shield, Smartphone, Terminal } from 'lucide-react';
 import './Login.css';
+import { COORDINATOR_API, SUPABASE_ENABLED } from '../lib/config';
+import { getSupabase } from '../lib/supabase';
 
 function Login({ onLoginSuccess }) {
   const [email, setEmail] = useState('');
@@ -8,8 +10,6 @@ function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const COORDINATOR_API = import.meta.env.VITE_COORDINATOR_API || `${window.location.protocol}//${window.location.hostname}:9002`;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,6 +22,20 @@ function Login({ onLoginSuccess }) {
     setError('');
 
     try {
+      // Supabase Auth: sign in against the Supabase project; the returned
+      // session JWT is verified by the coordinator via the project's JWKS.
+      if (SUPABASE_ENABLED) {
+        const supabase = getSupabase();
+        const { data, error: sbError } = await supabase.auth.signInWithPassword({ email, password });
+        if (sbError) throw new Error(sbError.message);
+        const token = data?.session?.access_token;
+        if (!token) throw new Error('Supabase sign-in succeeded but no session token was returned');
+        localStorage.setItem('token', token);
+        onLoginSuccess(token);
+        return;
+      }
+
+      // Local fallback: coordinator-issued password login.
       const res = await fetch(`${COORDINATOR_API}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
@@ -64,17 +78,17 @@ function Login({ onLoginSuccess }) {
                 <rect x="4" y="14" width="6" height="6" rx="1.5" />
                 <rect x="14" y="14" width="6" height="6" rx="1.5" />
               </svg>
-              <span>Protean</span>
+              <span>FlexPulse</span>
             </div>
           </div>
           
           <div className="brand-hero">
-            <h1>Scale your mobile automation with <span className="highlight-brand">Protean</span>.</h1>
+            <h1>Scale your mobile automation with <span className="highlight-brand">FlexPulse</span>.</h1>
             <p>A high-performance smartphone farm built for low-latency interactive control and native device automation.</p>
           </div>
 
           <div className="brand-footer">
-            <span>© {new Date().getFullYear()} Protean. All rights reserved.</span>
+            <span>© {new Date().getFullYear()} FlexPulse. All rights reserved.</span>
           </div>
         </div>
       </div>
@@ -92,7 +106,7 @@ function Login({ onLoginSuccess }) {
               </svg>
             </div>
             <h2>Sign in to your account</h2>
-            <p>Enter your corporate credentials below</p>
+            <p>{SUPABASE_ENABLED ? 'Sign in with your Supabase account credentials' : 'Enter your corporate credentials below'}</p>
           </div>
 
           {error && (

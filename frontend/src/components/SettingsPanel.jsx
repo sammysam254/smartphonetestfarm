@@ -18,6 +18,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import './SettingsPanel.css';
+import { COORDINATOR_API } from '../lib/config';
 
 function SettingsPanel({ token, devices: allDevices, showToast }) {
   const [activeSubTab, setActiveSubTab] = useState('users');
@@ -48,8 +49,6 @@ function SettingsPanel({ token, devices: allDevices, showToast }) {
   const [loadingAllocations, setLoadingAllocations] = useState(false);
   const [allocateUserId, setAllocateUserId] = useState('');
   const [allocateSerial, setAllocateSerial] = useState('');
-
-  const COORDINATOR_API = import.meta.env.VITE_COORDINATOR_API || `${window.location.protocol}//${window.location.hostname}:9002`;
 
   // Fetch all users
   const fetchUsers = async () => {

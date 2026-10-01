@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -101,6 +102,7 @@ func New(cfg *config.Config) (*App, error) {
 		cfg.Provider.MinPort,
 		cfg.Provider.MaxPort,
 		streamMgr,
+		cfg.Agent.Enabled,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: supervisor: %w", err)
@@ -130,7 +132,7 @@ func New(cfg *config.Config) (*App, error) {
 
 // Run starts the application event loop and blocks until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
-	slog.Info("protean-provider starting",
+	slog.Info("flexpulse-provider starting",
 		"id", a.provider.ID,
 		"name", a.cfg.Provider.Name,
 		"host", a.cfg.Provider.Host,
@@ -143,7 +145,13 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	// ── Start local admin Unix socket ─────────────────────────────────────────
-	go a.runAdminSocket(ctx)
+	// AF_UNIX sockets have spotty availability on Windows; the admin socket is
+	// an optional local debug facility, so skip it silently there.
+	if runtime.GOOS == "windows" {
+		slog.Info("admin socket: skipped on windows")
+	} else {
+		go a.runAdminSocket(ctx)
+	}
 
 	// ── Connect to coordinator ───────────────────────────────────────────────
 	if err := a.coordinator.Connect(ctx); err != nil {

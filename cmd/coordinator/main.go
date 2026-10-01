@@ -30,7 +30,7 @@ func main() {
 	})
 	slog.SetDefault(log)
 
-	slog.Info("protean-coordinator starting", "grpc_port", cfg.GRPCPort, "postgres_uri", cfg.PostgresURI)
+	slog.Info("flexpulse-coordinator starting", "grpc_port", cfg.GRPCPort, "postgres_uri", cfg.PostgresURI)
 
 	// 1. Open PostgreSQL Database
 	db, err := coordinator_server.OpenDB(cfg.PostgresURI)

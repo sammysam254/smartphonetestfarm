@@ -8,7 +8,8 @@ import MediaTab from './device-page/MediaTab';
 import InfoTab from './device-page/InfoTab';
 import PlaceholderTab from './device-page/PlaceholderTab';
 import AutomationTab from './device-page/AutomationTab';
-function DevicePage({ device, onBack, onRelease }) {
+import { COORDINATOR_API, deviceApiUrl, streamWSUrl } from '../lib/config';
+function DevicePage({ device, token, onBack, onRelease }) {
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
   const onWSMessageRef = useRef(null);
@@ -136,8 +137,6 @@ function DevicePage({ device, onBack, onRelease }) {
     navigator.clipboard.writeText(path || '');
   };
 
-  const COORDINATOR_API = import.meta.env.VITE_COORDINATOR_API || `${window.location.protocol}//${window.location.hostname}:9002`;
-
   const execShell = async (command) => {
     try {
       const res = await fetch(`${COORDINATOR_API}/api/v1/devices/${device.serial}/control`, {
@@ -163,7 +162,10 @@ function DevicePage({ device, onBack, onRelease }) {
 
   const handleFileUpload = (file, type) => {
     if (!wsUrl) return;
-    const uploadUrl = wsUrl.replace(/^ws(s?):\/\//i, 'http$1://').replace(/\/ws$/, '/upload');
+    // Upload via the coordinator proxy (same-origin with the API). XHR is
+    // used for upload progress, so it bypasses the fetch wrapper — the
+    // Authorization header must be set explicitly.
+    const uploadUrl = deviceApiUrl(device.serial, 'upload');
     const formData = new FormData();
     formData.append('file', file);
     formData.append('type', type);
@@ -178,6 +180,9 @@ function DevicePage({ device, onBack, onRelease }) {
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', uploadUrl, true);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
 
     // Track upload progress (network phase, 0% to 50% of the progress bar)
     xhr.upload.onprogress = (e) => {
@@ -377,12 +382,11 @@ function DevicePage({ device, onBack, onRelease }) {
   const [rotation, setRotation] = useState(initial.isLandscape ? 90 : 0);
 
   const streamPort = device.stream_port || device.streamPort;
-  const wsUrl = device.provider_id && streamPort
-    ? `ws://${device.provider_id}:${streamPort}/ws`
-    : null;
-  const stateUrl = device.provider_id && streamPort
-    ? `http://${device.provider_id}:${streamPort}/state`
-    : null;
+  // Video/control WS and uploads go through the coordinator's reverse proxy
+  // (same origin, works through the Cloudflare Tunnel). A stream is only
+  // available once the device has been claimed (stream_port > 0).
+  const wsUrl = streamPort ? streamWSUrl(device.serial, token) : null;
+  const stateUrl = streamPort ? deviceApiUrl(device.serial, 'state') : null;
 
   // We no longer poll stateUrl because state is delivered via websocket (DEVICE_LIST_UPDATE)
 

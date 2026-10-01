@@ -1,0 +1,30 @@
+# Cloudflare Tunnel configuration for the Protean device farm.
+#
+# Exposes the entire farm — dashboard, REST/WS API, and device video streams —
+# through a single HTTPS hostname backed by the coordinator on localhost:9002.
+#
+# One-time setup (run from an elevated PowerShell):
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create protean-farm
+#        → prints the tunnel UUID and writes <UUID>.json next to this file
+#   3. cloudflared tunnel route dns protean-farm farm.example.com
+#        → creates the DNS CNAME for your hostname
+#   4. Fill in the two placeholders below (tunnel UUID + credentials path).
+#   5. Run: powershell -File scripts\cloudflare\run-tunnel.ps1
+#
+# Cloudflare terminates TLS at the edge, so WebCodecs (the H.264 decoder used
+# by the dashboard) is satisfied on the secure-context requirement — remote
+# browsers get working video without any Chromium flags.
+
+tunnel: REPLACE_WITH_YOUR_TUNNEL_UUID
+credentials-file: C:\cln\smartphonetestfarm\scripts\cloudflare\REPLACE_WITH_YOUR_TUNNEL_UUID.json
+
+# Metrics for the tunnel itself (localhost only).
+metrics: 127.0.0.1:20241
+
+ingress:
+  # Everything flows to the coordinator: UI, /api/v1, device stream proxy.
+  - hostname: farm.example.com
+    service: http://localhost:9002
+  # Catch-all: anything not matching the hostname above.
+  - service: http_status:404

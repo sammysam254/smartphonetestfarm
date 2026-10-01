@@ -7,10 +7,9 @@ import DeviceDetailsTable from './components/DeviceDetailsTable';
 import SettingsPanel from './components/SettingsPanel';
 import Login from './components/Login';
 import { useDevicesWS } from './hooks/useDevicesWS';
+import { COORDINATOR_API, SUPABASE_ENABLED } from './lib/config';
+import { getSupabase } from './lib/supabase';
 import './App.css';
-
-// Coordinator's API address (usually GRPCPort + 2, e.g. 9002)
-const COORDINATOR_API = import.meta.env.VITE_COORDINATOR_API || `${window.location.protocol}//${window.location.hostname}:9002`;
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
@@ -52,8 +51,44 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setToken('');
+    // When Supabase Auth is active, end the Supabase session as well.
+    if (SUPABASE_ENABLED) {
+      const supabase = getSupabase();
+      supabase.auth.signOut().catch(() => {});
+    }
     showToast('Logged out successfully', 'success');
   };
+
+  // Keep the app token in sync with the Supabase session: page refreshes
+  // (persisted session) and hourly token refreshes both flow through here,
+  // and useDevicesWS reconnects automatically when the token changes.
+  useEffect(() => {
+    if (!SUPABASE_ENABLED) return;
+    const supabase = getSupabase();
+
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (mounted && data?.session?.access_token) {
+        localStorage.setItem('token', data.session.access_token);
+        setToken(data.session.access_token);
+      }
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.access_token) {
+        localStorage.removeItem('token');
+        setToken('');
+        return;
+      }
+      localStorage.setItem('token', session.access_token);
+      setToken(session.access_token);
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
 
 
 
@@ -218,6 +253,7 @@ function App() {
         {activeDevice ? (
           <DevicePage
             device={activeDevice}
+            token={token}
             onBack={() => navigate('/')}
             onRelease={() => handleRelease(activeDevice.serial)}
           />

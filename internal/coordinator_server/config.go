@@ -17,6 +17,10 @@ type Config struct {
 	JWTIssuer       string
 	OIDCJWKSURL     string
 	BypassAuthInDev bool
+	// StaticDir optionally points at a built frontend (frontend/dist). When
+	// set, the coordinator serves the SPA itself so the whole farm is exposed
+	// through a single HTTP port (and a single Cloudflare Tunnel ingress).
+	StaticDir string
 }
 
 // LoadConfig performs the load config operation.
@@ -27,17 +31,17 @@ func LoadConfig() Config {
 			port = p
 		}
 	}
-	dbURI := "postgres://postgres:123456@localhost:5455/protean?sslmode=disable"
+	dbURI := "postgres://postgres:123456@localhost:5455/flexpulse?sslmode=disable"
 	if uri := os.Getenv("COORDINATOR_POSTGRES_URI"); uri != "" {
 		dbURI = uri
 	}
 
-	jwtSecret := "protean-default-secret-key-change-me-123456"
+	jwtSecret := "flexpulse-default-secret-key-change-me-123456"
 	if sec := os.Getenv("COORDINATOR_JWT_SECRET"); sec != "" {
 		jwtSecret = sec
 	}
 
-	jwtIssuer := "protean-coordinator"
+	jwtIssuer := "flexpulse-coordinator"
 	if iss := os.Getenv("COORDINATOR_JWT_ISSUER"); iss != "" {
 		jwtIssuer = iss
 	}
@@ -54,6 +58,11 @@ func LoadConfig() Config {
 		}
 	}
 
+	staticDir := ""
+	if dir := os.Getenv("COORDINATOR_STATIC_DIR"); dir != "" {
+		staticDir = dir
+	}
+
 	return Config{
 		GRPCPort:        port,
 		PostgresURI:     dbURI,
@@ -61,5 +70,6 @@ func LoadConfig() Config {
 		JWTIssuer:       jwtIssuer,
 		OIDCJWKSURL:     oidcJWKS,
 		BypassAuthInDev: bypassDev,
+		StaticDir:       staticDir,
 	}
 }

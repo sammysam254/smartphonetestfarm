@@ -2,6 +2,9 @@
 bin/
 coverage.out
 
+# Locally downloaded Windows toolchain (adb platform-tools)
+.tools/
+
 # Go workspace
 go.work
 go.work.sum

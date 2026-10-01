@@ -17,9 +17,12 @@ import (
 func (s *AuthService) AuthMiddleware(bypassInDev bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Exclude routes that don't need auth (e.g. login endpoint, health checks, Swagger UI)
 			path := r.URL.Path
-			if path == "/api/v1/auth/login" || path == "/healthz" || path == "/docs" || path == "/swagger.yaml" {
+
+			// Public paths: static frontend assets / SPA shell (the dashboard must
+			// load before the user has a token), health probe, docs, and login.
+			if !strings.HasPrefix(path, "/api/") ||
+				path == "/api/v1/auth/login" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -42,13 +45,25 @@ func (s *AuthService) AuthMiddleware(bypassInDev bool) func(http.Handler) http.H
 			if tokenStr != "" {
 				claims, err := s.jwtManager.VerifyToken(tokenStr)
 				if err == nil {
-					userInfo = UserInfo{
-						ID:     claims.UserID,
-						Email:  claims.Email,
-						Role:   claims.Role,
-						Groups: claims.Groups,
+					if claims.UserID != "" {
+						// Local HS256 token issued by /api/v1/auth/login.
+						userInfo = UserInfo{
+							ID:     claims.UserID,
+							Email:  claims.Email,
+							Role:   claims.Role,
+							Groups: claims.Groups,
+						}
+						authenticated = true
+					} else {
+						// External RS256 token (Supabase Auth / OIDC): only sub/email are
+						// present — resolve role and groups from the local database.
+						userInfo, err = s.ResolveOIDCUser(claims.Subject, claims.Email)
+						if err != nil {
+							slog.Warn("auth: failed to resolve external identity", "sub", claims.Subject, "err", err)
+						} else {
+							authenticated = true
+						}
 					}
-					authenticated = true
 				} else {
 					slog.Warn("auth: invalid JWT token", "err", err)
 				}

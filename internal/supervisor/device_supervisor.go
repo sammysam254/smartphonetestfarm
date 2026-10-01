@@ -42,6 +42,7 @@ type DeviceSupervisor struct {
 	iosWorker *IOSWorker   // non-nil for iOS devices
 	wdaClient *wda.Client  // non-nil for iOS devices
 	streams   domain.StreamManager
+	agentEnabled bool
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -55,16 +56,18 @@ func newDeviceSupervisor(
 	ports *PortAllocator,
 	events chan<- SupervisorEvent,
 	streams domain.StreamManager,
+	agentEnabled bool,
 ) *DeviceSupervisor {
 	return &DeviceSupervisor{
-		device:     device,
-		providerID: providerID,
-		adbClient:  adbClient,
-		ports:      ports,
-		events:     events,
-		streams:    streams,
-		state:      StateIdle,
-		done:       make(chan struct{}),
+		device:       device,
+		providerID:   providerID,
+		adbClient:    adbClient,
+		ports:        ports,
+		events:       events,
+		streams:      streams,
+		agentEnabled: agentEnabled,
+		state:        StateIdle,
+		done:         make(chan struct{}),
 	}
 }
 
@@ -104,7 +107,7 @@ func (ds *DeviceSupervisor) Run(ctx context.Context) {
 			slog.Warn("device supervisor: ios worker start failed",
 				"serial", ds.device.Serial, "err", err)
 		}
-	} else {
+	} else if ds.agentEnabled {
 		agt := agent.New(ds.device, port+3000, ds.adbClient)
 		ds.mu.Lock()
 		ds.agt = agt
@@ -142,6 +145,9 @@ func (ds *DeviceSupervisor) Run(ctx context.Context) {
 				}
 			}
 		}()
+	} else {
+		slog.Info("device supervisor: agent disabled by config - skipping APK install and accessibility service",
+			"serial", serial)
 	}
 
 	// The supervisor now sits idle, processing commands sent via Claim/Release/Activate.

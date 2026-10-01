@@ -37,7 +37,7 @@ function Header({ theme, toggleTheme, onLogout, isAdmin, activeTab, onTabChange 
         <div className="header-logo">
           <LogoIcon />
         </div>
-        <h1 className="header-title">Protean</h1>
+        <h1 className="header-title">FlexPulse</h1>
       </div>
 
       {onLogout && (

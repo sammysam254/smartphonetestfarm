@@ -95,7 +95,7 @@ func main() {
 
 	// ── Logger ────────────────────────────────────────────────────────────────
 	log := logger.New(cfg.Logging)
-	log.Info("protean-provider", "version", Version, "config", *configPath)
+	log.Info("flexpulse-provider", "version", Version, "config", *configPath)
 
 	// ── App ───────────────────────────────────────────────────────────────────
 	application, err := app.New(cfg)
